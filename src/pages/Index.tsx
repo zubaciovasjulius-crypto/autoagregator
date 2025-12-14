@@ -53,6 +53,25 @@ const Index = () => {
     loadListings();
   }, []);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (isLoading) return;
+      
+      try {
+        const cachedListings = await scrapeApi.getListings();
+        if (cachedListings.length > 0) {
+          setListings(cachedListings.map(convertDbToCarListing));
+          setLastUpdated(new Date(cachedListings[0].scraped_at));
+        }
+      } catch (error) {
+        console.error('Auto-refresh error:', error);
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
   const handleRefresh = useCallback(async () => {
     if (isLoading) return;
     
