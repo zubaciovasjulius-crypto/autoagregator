@@ -1,28 +1,85 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Header from '@/components/Header';
-import { carSources, CarListing } from '@/data/mockCars';
+import { CarListing } from '@/data/mockCars';
 import { scrapeApi, DbCarListing } from '@/lib/api/scrapeApi';
 import { useSavedCars } from '@/hooks/useSavedCars';
 import { useAuth } from '@/hooks/useAuth';
-import { Bell, ExternalLink, Trash2, Car, LogIn, Plus, Loader2, Search, RefreshCw } from 'lucide-react';
+import { Bell, Trash2, Car, LogIn, Plus, Loader2, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import { toast } from '@/hooks/use-toast';
 import CarCard from '@/components/CarCard';
 
+const REFRESH_INTERVAL = 30000; // 30 seconds
+
+// Notification sound
+const playNotificationSound = () => {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // First beep
+    const osc1 = audioContext.createOscillator();
+    const gain1 = audioContext.createGain();
+    osc1.connect(gain1);
+    gain1.connect(audioContext.destination);
+    osc1.frequency.value = 880;
+    osc1.type = 'sine';
+    gain1.gain.setValueAtTime(0.5, audioContext.currentTime);
+    gain1.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+    osc1.start(audioContext.currentTime);
+    osc1.stop(audioContext.currentTime + 0.2);
+    
+    // Second beep (higher)
+    setTimeout(() => {
+      const osc2 = audioContext.createOscillator();
+      const gain2 = audioContext.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioContext.destination);
+      osc2.frequency.value = 1100;
+      osc2.type = 'sine';
+      gain2.gain.setValueAtTime(0.5, audioContext.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+      osc2.start(audioContext.currentTime);
+      osc2.stop(audioContext.currentTime + 0.3);
+    }, 200);
+    
+    // Third beep (even higher)
+    setTimeout(() => {
+      const osc3 = audioContext.createOscillator();
+      const gain3 = audioContext.createGain();
+      osc3.connect(gain3);
+      gain3.connect(audioContext.destination);
+      osc3.frequency.value = 1320;
+      osc3.type = 'sine';
+      gain3.gain.setValueAtTime(0.5, audioContext.currentTime);
+      gain3.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+      osc3.start(audioContext.currentTime);
+      osc3.stop(audioContext.currentTime + 0.4);
+    }, 400);
+  } catch (e) {
+    console.log('Audio not available');
+  }
+};
+
 const Index = () => {
   const { user } = useAuth();
   const { savedCars, removeCar, saveCar, loading, fetchSavedCars } = useSavedCars();
   
-  // New search form
+  // Form
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
   
-  // Active search and results
-  const [activeSearch, setActiveSearch] = useState<{ brand: string; model: string } | null>(null);
-  const [listings, setListings] = useState<CarListing[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  // New listings tracking
+  const [newListings, setNewListings] = useState<CarListing[]>([]);
+  const [isChecking, setIsChecking] = useState(false);
+  const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  
+  // Track known listing IDs to detect new ones
+  const knownListingsRef = useRef<Set<string>>(new Set());
+  const isFirstCheckRef = useRef(true);
 
   useEffect(() => {
     fetchSavedCars();
@@ -47,45 +104,96 @@ const Index = () => {
     listingUrl: db.listing_url || db.source_url,
   }), []);
 
-  // Search for cars
-  const handleSearch = async (brand: string, model: string) => {
-    setIsSearching(true);
-    setActiveSearch({ brand, model });
-    setListings([]);
-
-    toast({
-      title: 'Ieškoma...',
-      description: `Ieškoma ${brand} ${model} TheParking.eu`,
-    });
-
+  // Check all saved searches for new listings
+  const checkForNewListings = useCallback(async () => {
+    if (!user || savedCars.length === 0) return;
+    
+    setIsChecking(true);
+    
     try {
-      const result = await scrapeApi.searchCars(brand, model);
-      
-      if (result.success && result.data) {
-        const converted = result.data.map(convertDbToCarListing);
-        setListings(converted);
-        toast({
-          title: 'Rasta!',
-          description: `Rasta ${converted.length} skelbimų`,
-        });
-      } else {
-        toast({
-          title: 'Klaida',
-          description: result.error || 'Nepavyko rasti skelbimų',
-          variant: 'destructive',
-        });
+      for (const search of savedCars) {
+        console.log(`Checking ${search.brand} ${search.model}...`);
+        
+        const result = await scrapeApi.searchCars(search.brand, search.model);
+        
+        if (result.success && result.data) {
+          const foundNew: CarListing[] = [];
+          
+          for (const listing of result.data) {
+            const listingId = listing.id || listing.external_id;
+            
+            // Skip if already known
+            if (knownListingsRef.current.has(listingId)) continue;
+            
+            // Add to known
+            knownListingsRef.current.add(listingId);
+            
+            // If not first check, this is a NEW listing
+            if (!isFirstCheckRef.current) {
+              foundNew.push(convertDbToCarListing(listing));
+            }
+          }
+          
+          if (foundNew.length > 0) {
+            // Play sound
+            if (soundEnabled) {
+              playNotificationSound();
+            }
+            
+            // Show toast
+            toast({
+              title: `🚗 ${foundNew.length} nauji skelbimai!`,
+              description: `${search.brand} ${search.model}`,
+              duration: 10000,
+            });
+            
+            // Add to new listings (at the beginning)
+            setNewListings(prev => [...foundNew, ...prev]);
+          }
+        }
+        
+        // Small delay between searches
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
+      
+      isFirstCheckRef.current = false;
+      setLastCheck(new Date());
     } catch (error) {
-      console.error('Search error:', error);
-      toast({
-        title: 'Klaida',
-        description: 'Nepavyko atlikti paieškos',
-        variant: 'destructive',
-      });
+      console.error('Error checking for new listings:', error);
     } finally {
-      setIsSearching(false);
+      setIsChecking(false);
+      setCountdown(REFRESH_INTERVAL / 1000);
     }
-  };
+  }, [user, savedCars, convertDbToCarListing, soundEnabled]);
+
+  // Initial check when user logs in and has saved searches
+  useEffect(() => {
+    if (user && savedCars.length > 0 && isFirstCheckRef.current) {
+      checkForNewListings();
+    }
+  }, [user, savedCars, checkForNewListings]);
+
+  // Auto-refresh interval
+  useEffect(() => {
+    if (!user || savedCars.length === 0) return;
+    
+    const interval = setInterval(() => {
+      checkForNewListings();
+    }, REFRESH_INTERVAL);
+
+    return () => clearInterval(interval);
+  }, [user, savedCars, checkForNewListings]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!user || savedCars.length === 0) return;
+    
+    const timer = setInterval(() => {
+      setCountdown(prev => (prev <= 1 ? REFRESH_INTERVAL / 1000 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [user, savedCars]);
 
   // Add new saved search
   const handleAddSearch = async () => {
@@ -117,7 +225,15 @@ const Index = () => {
     if (success) {
       setNewBrand('');
       setNewModel('');
+      // Reset to check this new search
+      isFirstCheckRef.current = true;
+      setTimeout(() => checkForNewListings(), 500);
     }
+  };
+
+  // Clear new listings
+  const clearNewListings = () => {
+    setNewListings([]);
   };
 
   return (
@@ -125,15 +241,51 @@ const Index = () => {
       <Header />
 
       {/* Hero Section */}
-      <section className="relative bg-gradient-to-b from-primary/20 to-background py-8 md:py-12">
+      <section className="relative bg-gradient-to-b from-primary/20 to-background py-6 md:py-10">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-6">
+          <div className="text-center mb-4">
             <h1 className="text-2xl md:text-4xl font-display font-bold text-foreground mb-2">
-              Automobilių paieška Europoje
+              Naujų skelbimų stebėjimas
             </h1>
             <p className="text-sm md:text-base text-muted-foreground">
-              Skelbimai iš TheParking.eu - {carSources.length}+ portalų
+              Automatiškai tikrina kas {REFRESH_INTERVAL / 1000} sekundžių
             </p>
+            
+            {/* Status bar */}
+            {user && savedCars.length > 0 && (
+              <div className="flex items-center justify-center gap-4 mt-3">
+                <span className="text-sm text-muted-foreground flex items-center gap-2">
+                  {isChecking ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      Tikrinama...
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      Kitas tikrinimas: {countdown}s
+                    </>
+                  )}
+                </span>
+                
+                <button
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  {soundEnabled ? (
+                    <Volume2 className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <VolumeX className="w-4 h-4 text-red-500" />
+                  )}
+                </button>
+                
+                {lastCheck && (
+                  <span className="text-xs text-muted-foreground">
+                    Paskutinis: {lastCheck.toLocaleTimeString('lt-LT')}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -142,7 +294,7 @@ const Index = () => {
       <section className="container mx-auto px-4 py-6">
         <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
           <Bell className="w-5 h-5" />
-          Išsaugotos paieškos
+          Stebimos paieškos
         </h2>
 
         {!user ? (
@@ -152,7 +304,7 @@ const Index = () => {
               Prisijunkite
             </h3>
             <p className="text-muted-foreground text-sm mb-4">
-              Išsaugokite paieškas ir ieškokite automobilių
+              Stebėkite automobilius ir gaukite pranešimus
             </p>
             <Link to="/auth">
               <Button size="sm">Prisijungti</Button>
@@ -173,10 +325,11 @@ const Index = () => {
                 onChange={(e) => setNewModel(e.target.value)}
                 placeholder="Modelis (pvz. X5)"
                 className="flex-1"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddSearch()}
               />
               <Button onClick={handleAddSearch} className="gap-2">
                 <Plus className="w-4 h-4" />
-                Išsaugoti
+                Stebėti
               </Button>
             </div>
 
@@ -192,16 +345,10 @@ const Index = () => {
                     key={car.id}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30"
                   >
-                    <button
-                      onClick={() => handleSearch(car.brand, car.model)}
-                      disabled={isSearching}
-                      className="flex items-center gap-2 hover:text-primary transition-colors"
-                    >
-                      <Search className="w-4 h-4 text-green-600" />
-                      <span className="text-sm font-medium text-foreground">
-                        {car.brand} {car.model}
-                      </span>
-                    </button>
+                    <Car className="w-4 h-4 text-green-600" />
+                    <span className="text-sm font-medium text-foreground">
+                      {car.brand} {car.model}
+                    </span>
                     <button
                       onClick={() => removeCar(car.external_id)}
                       className="p-1 hover:bg-destructive/20 rounded transition-colors"
@@ -213,82 +360,51 @@ const Index = () => {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Nėra išsaugotų paieškų. Pridėkite markę ir modelį aukščiau.
+                Pridėkite paiešką aukščiau - sistema automatiškai tikrins naujus skelbimus.
               </p>
             )}
           </div>
         )}
       </section>
 
-      {/* Search Results */}
-      {activeSearch && (
-        <section className="container mx-auto px-4 py-6 border-t border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Car className="w-5 h-5" />
-              {activeSearch.brand} {activeSearch.model} ({listings.length})
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleSearch(activeSearch.brand, activeSearch.model)}
-              disabled={isSearching}
-              className="gap-2"
-            >
-              {isSearching ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              Atnaujinti
-            </Button>
-          </div>
-
-          {isSearching ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-              <p className="text-muted-foreground">Ieškoma TheParking.eu...</p>
-            </div>
-          ) : listings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {listings.map((car, index) => (
-                <CarCard key={car.id} car={car} index={index} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 bg-muted/30 rounded-xl border border-border">
-              <Car className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                Skelbimų nerasta
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                Pabandykite kitą paiešką
-              </p>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Source Links */}
+      {/* New Listings Section */}
       <section className="container mx-auto px-4 py-6 border-t border-border">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <ExternalLink className="w-5 h-5" />
-          Šaltiniai (per TheParking.eu)
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          {carSources.map((source) => (
-            <a
-              key={source.id}
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-card hover:bg-primary/10 border border-border transition-all text-sm"
-            >
-              {source.name}
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          ))}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Car className="w-5 h-5" />
+            Nauji skelbimai ({newListings.length})
+          </h2>
+          {newListings.length > 0 && (
+            <Button variant="outline" size="sm" onClick={clearNewListings}>
+              Išvalyti
+            </Button>
+          )}
         </div>
+
+        {isChecking && newListings.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground">Ieškoma naujų skelbimų...</p>
+          </div>
+        ) : newListings.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {newListings.map((car, index) => (
+              <CarCard key={car.id} car={car} index={index} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-muted/30 rounded-xl border border-border">
+            <Bell className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              {savedCars.length === 0 ? 'Pridėkite paiešką' : 'Laukiama naujų skelbimų'}
+            </h3>
+            <p className="text-muted-foreground text-sm">
+              {savedCars.length === 0 
+                ? 'Įveskite markę ir modelį, kad pradėtumėte stebėti' 
+                : 'Sistema automatiškai praneš, kai atsiras nauji skelbimai'}
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Footer */}
