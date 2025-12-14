@@ -14,7 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      car_listings: {
+        Row: {
+          brand: string
+          country: string
+          created_at: string
+          external_id: string
+          fuel: string | null
+          id: string
+          image: string | null
+          listing_url: string | null
+          location: string | null
+          mileage: number | null
+          model: string
+          price: number
+          scraped_at: string
+          source: string
+          source_url: string
+          title: string
+          transmission: string | null
+          year: number
+        }
+        Insert: {
+          brand: string
+          country: string
+          created_at?: string
+          external_id: string
+          fuel?: string | null
+          id?: string
+          image?: string | null
+          listing_url?: string | null
+          location?: string | null
+          mileage?: number | null
+          model: string
+          price: number
+          scraped_at?: string
+          source: string
+          source_url: string
+          title: string
+          transmission?: string | null
+          year: number
+        }
+        Update: {
+          brand?: string
+          country?: string
+          created_at?: string
+          external_id?: string
+          fuel?: string | null
+          id?: string
+          image?: string | null
+          listing_url?: string | null
+          location?: string | null
+          mileage?: number | null
+          model?: string
+          price?: number
+          scraped_at?: string
+          source?: string
+          source_url?: string
+          title?: string
+          transmission?: string | null
+          year?: number
+        }
+        Relationships: []
+      }
+      scrape_status: {
+        Row: {
+          error_message: string | null
+          id: string
+          last_scraped_at: string | null
+          listings_count: number | null
+          source: string
+          status: string | null
+        }
+        Insert: {
+          error_message?: string | null
+          id?: string
+          last_scraped_at?: string | null
+          listings_count?: number | null
+          source: string
+          status?: string | null
+        }
+        Update: {
+          error_message?: string | null
+          id?: string
+          last_scraped_at?: string | null
+          listings_count?: number | null
+          source?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
