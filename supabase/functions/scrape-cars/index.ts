@@ -23,21 +23,24 @@ interface CarListing {
   image: string | null;
 }
 
-const sourceConfigs: Record<string, { url: string; country: string; sourceUrl: string }> = {
+const sourceConfigs: Record<string, { url: string; country: string; sourceUrl: string; listingPattern: RegExp }> = {
   'mobile.de': {
     url: 'https://suchen.mobile.de/fahrzeuge/search.html?s=Car&vc=Car',
     country: 'Vokietija',
     sourceUrl: 'https://mobile.de',
+    listingPattern: /\/fahrzeuge\/details\.html\?id=(\d+)/,
   },
   'autoscout24': {
     url: 'https://www.autoscout24.de/lst?sort=standard&desc=0',
     country: 'Vokietija',
     sourceUrl: 'https://autoscout24.de',
+    listingPattern: /\/angebote\/[\w-]+-([a-f0-9-]+)/,
   },
   'autoplius': {
     url: 'https://autoplius.lt/skelbimai/naudoti-automobiliai?category_id=2',
     country: 'Lietuva',
     sourceUrl: 'https://autoplius.lt',
+    listingPattern: /\/skelbimai\/[\w-]+-(\d+)\.html/,
   },
 };
 
@@ -146,9 +149,9 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         url: config.url,
-        formats: ['markdown', 'links'],
-        onlyMainContent: true,
-        waitFor: 3000,
+        formats: ['markdown', 'links', 'html'],
+        onlyMainContent: false,
+        waitFor: 5000,
       }),
     });
 
@@ -167,7 +170,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Parse listings
+    // Parse listings with links
     const listings = parseListings(scrapeData, source, config);
 
     if (listings.length > 0) {
@@ -215,12 +218,39 @@ Deno.serve(async (req) => {
   }
 });
 
-function parseListings(scrapeData: any, source: string, config: { country: string; sourceUrl: string }): CarListing[] {
+function parseListings(scrapeData: any, source: string, config: { country: string; sourceUrl: string; listingPattern: RegExp }): CarListing[] {
   const markdown = scrapeData.data?.markdown || scrapeData.markdown || '';
+  const html = scrapeData.data?.html || scrapeData.html || '';
+  const links = scrapeData.data?.links || scrapeData.links || [];
+  
   const listings: CarListing[] = [];
+  
+  // Extract listing URLs that match the pattern
+  const listingUrls: string[] = links
+    .filter((link: string) => config.listingPattern.test(link))
+    .slice(0, 25);
+  
+  console.log(`Found ${listingUrls.length} listing URLs for ${source}`);
+  
+  // Extract images from HTML
+  const imageMatches = html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi);
+  const allImages: string[] = [];
+  for (const match of imageMatches) {
+    const src = match[1];
+    // Filter for car images (usually larger images, not icons)
+    if (src && (src.includes('img') || src.includes('image') || src.includes('photo') || src.includes('car')) 
+        && !src.includes('icon') && !src.includes('logo') && !src.includes('avatar')
+        && (src.includes('.jpg') || src.includes('.jpeg') || src.includes('.png') || src.includes('.webp'))) {
+      allImages.push(src);
+    }
+  }
+  console.log(`Found ${allImages.length} potential car images`);
+
   const lines = markdown.split('\n').filter((l: string) => l.trim());
   
   let currentListing: Partial<CarListing> | null = null;
+  let listingIndex = 0;
+  let imageIndex = 0;
 
   for (const line of lines) {
     const priceMatch = line.match(/(\d{1,3}[.,]?\d{3})\s*€/) || line.match(/€\s*(\d{1,3}[.,]?\d{3})/);
@@ -231,8 +261,18 @@ function parseListings(scrapeData: any, source: string, config: { country: strin
     
     if (foundBrand && !currentListing) {
       const brandName = foundBrand === 'VW' ? 'Volkswagen' : foundBrand;
+      
+      // Get the next listing URL
+      const listingUrl = listingUrls[listingIndex] || null;
+      const externalId = listingUrl 
+        ? extractIdFromUrl(listingUrl, config.listingPattern, source)
+        : `${source}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Get next image
+      const carImage = allImages[imageIndex] || defaultImages[foundBrand] || defaultImages.default;
+      
       currentListing = {
-        external_id: `${source}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        external_id: externalId,
         title: line.slice(0, 100).trim().replace(/[#*\[\]\\]/g, ''),
         brand: brandName,
         model: extractModel(line, brandName),
@@ -241,8 +281,8 @@ function parseListings(scrapeData: any, source: string, config: { country: strin
         country: config.country,
         fuel: 'Dyzelinas',
         transmission: 'Automatinė',
-        image: defaultImages[foundBrand] || defaultImages.default,
-        listing_url: config.sourceUrl,
+        image: carImage,
+        listing_url: listingUrl ? ensureAbsoluteUrl(listingUrl, config.sourceUrl) : config.sourceUrl,
       };
     }
     
@@ -255,6 +295,8 @@ function parseListings(scrapeData: any, source: string, config: { country: strin
         currentListing.location = getRandomLocation(source);
         listings.push(currentListing as CarListing);
         currentListing = null;
+        listingIndex++;
+        imageIndex++;
         
         if (listings.length >= 20) break;
       }
@@ -262,6 +304,24 @@ function parseListings(scrapeData: any, source: string, config: { country: strin
   }
   
   return listings;
+}
+
+function extractIdFromUrl(url: string, pattern: RegExp, source: string): string {
+  const match = url.match(pattern);
+  if (match && match[1]) {
+    return `${source}-${match[1]}`;
+  }
+  return `${source}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function ensureAbsoluteUrl(url: string, baseUrl: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  if (url.startsWith('/')) {
+    return `${baseUrl}${url}`;
+  }
+  return `${baseUrl}/${url}`;
 }
 
 function extractModel(line: string, brand: string): string {
