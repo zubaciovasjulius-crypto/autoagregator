@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Header from '@/components/Header';
-import { carSources } from '@/data/mockCars';
+import { carSources, CarListing } from '@/data/mockCars';
+import { scrapeApi, DbCarListing } from '@/lib/api/scrapeApi';
 import { useSavedCars } from '@/hooks/useSavedCars';
 import { useAuth } from '@/hooks/useAuth';
-import { Bell, ExternalLink, Trash2, Car, LogIn, Plus, Loader2 } from 'lucide-react';
+import { Bell, ExternalLink, Trash2, Car, LogIn, Plus, Loader2, Search, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import { toast } from '@/hooks/use-toast';
+import CarCard from '@/components/CarCard';
 
 const Index = () => {
   const { user } = useAuth();
@@ -16,10 +18,74 @@ const Index = () => {
   // New search form
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
+  
+  // Active search and results
+  const [activeSearch, setActiveSearch] = useState<{ brand: string; model: string } | null>(null);
+  const [listings, setListings] = useState<CarListing[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     fetchSavedCars();
   }, [fetchSavedCars]);
+
+  // Convert DB listing to CarListing format
+  const convertDbToCarListing = useCallback((db: DbCarListing): CarListing => ({
+    id: db.id,
+    title: db.title,
+    brand: db.brand,
+    model: db.model,
+    year: db.year,
+    price: db.price,
+    mileage: db.mileage || 0,
+    fuel: db.fuel || 'Dyzelinas',
+    transmission: db.transmission || 'Automatinė',
+    location: db.location || '',
+    country: db.country,
+    source: db.source,
+    sourceUrl: db.source_url,
+    image: db.image || 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80',
+    listingUrl: db.listing_url || db.source_url,
+  }), []);
+
+  // Search for cars
+  const handleSearch = async (brand: string, model: string) => {
+    setIsSearching(true);
+    setActiveSearch({ brand, model });
+    setListings([]);
+
+    toast({
+      title: 'Ieškoma...',
+      description: `Ieškoma ${brand} ${model} TheParking.eu`,
+    });
+
+    try {
+      const result = await scrapeApi.searchCars(brand, model);
+      
+      if (result.success && result.data) {
+        const converted = result.data.map(convertDbToCarListing);
+        setListings(converted);
+        toast({
+          title: 'Rasta!',
+          description: `Rasta ${converted.length} skelbimų`,
+        });
+      } else {
+        toast({
+          title: 'Klaida',
+          description: result.error || 'Nepavyko rasti skelbimų',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      toast({
+        title: 'Klaida',
+        description: 'Nepavyko atlikti paieškos',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   // Add new saved search
   const handleAddSearch = async () => {
@@ -66,7 +132,7 @@ const Index = () => {
               Automobilių paieška Europoje
             </h1>
             <p className="text-sm md:text-base text-muted-foreground">
-              Ieškokite automobilių {carSources.length} Europos portaluose
+              Skelbimai iš TheParking.eu - {carSources.length}+ portalų
             </p>
           </div>
         </div>
@@ -86,7 +152,7 @@ const Index = () => {
               Prisijunkite
             </h3>
             <p className="text-muted-foreground text-sm mb-4">
-              Išsaugokite paieškas ir gaukite pranešimus
+              Išsaugokite paieškas ir ieškokite automobilių
             </p>
             <Link to="/auth">
               <Button size="sm">Prisijungti</Button>
@@ -110,7 +176,7 @@ const Index = () => {
               />
               <Button onClick={handleAddSearch} className="gap-2">
                 <Plus className="w-4 h-4" />
-                Pridėti
+                Išsaugoti
               </Button>
             </div>
 
@@ -126,10 +192,16 @@ const Index = () => {
                     key={car.id}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30"
                   >
-                    <Car className="w-4 h-4 text-green-600" />
-                    <span className="text-sm font-medium text-foreground">
-                      {car.brand} {car.model}
-                    </span>
+                    <button
+                      onClick={() => handleSearch(car.brand, car.model)}
+                      disabled={isSearching}
+                      className="flex items-center gap-2 hover:text-primary transition-colors"
+                    >
+                      <Search className="w-4 h-4 text-green-600" />
+                      <span className="text-sm font-medium text-foreground">
+                        {car.brand} {car.model}
+                      </span>
+                    </button>
                     <button
                       onClick={() => removeCar(car.external_id)}
                       className="p-1 hover:bg-destructive/20 rounded transition-colors"
@@ -148,31 +220,72 @@ const Index = () => {
         )}
       </section>
 
+      {/* Search Results */}
+      {activeSearch && (
+        <section className="container mx-auto px-4 py-6 border-t border-border">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Car className="w-5 h-5" />
+              {activeSearch.brand} {activeSearch.model} ({listings.length})
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleSearch(activeSearch.brand, activeSearch.model)}
+              disabled={isSearching}
+              className="gap-2"
+            >
+              {isSearching ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              Atnaujinti
+            </Button>
+          </div>
+
+          {isSearching ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+              <p className="text-muted-foreground">Ieškoma TheParking.eu...</p>
+            </div>
+          ) : listings.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {listings.map((car, index) => (
+                <CarCard key={car.id} car={car} index={index} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 bg-muted/30 rounded-xl border border-border">
+              <Car className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                Skelbimų nerasta
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                Pabandykite kitą paiešką
+              </p>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Source Links */}
       <section className="container mx-auto px-4 py-6 border-t border-border">
         <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
           <ExternalLink className="w-5 h-5" />
-          Automobilių portalai
+          Šaltiniai (per TheParking.eu)
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="flex flex-wrap gap-2">
           {carSources.map((source) => (
             <a
               key={source.id}
               href={source.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-4 p-4 rounded-xl bg-card hover:bg-primary/10 border border-border transition-all hover:shadow-lg group"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-card hover:bg-primary/10 border border-border transition-all text-sm"
             >
-              <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                {source.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                  {source.name}
-                </h3>
-                <p className="text-sm text-muted-foreground">{source.country}</p>
-              </div>
-              <ExternalLink className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+              {source.name}
+              <ExternalLink className="w-3 h-3" />
             </a>
           ))}
         </div>
