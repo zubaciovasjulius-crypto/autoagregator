@@ -51,12 +51,21 @@ const CarCard = ({ car, index }: CarCardProps) => {
     >
       {/* Image */}
       <div className="relative aspect-[16/10] overflow-hidden bg-muted">
-        <img
-          src={car.image}
-          alt={car.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          loading="lazy"
-        />
+        {car.image ? (
+          <img
+            src={car.image}
+            alt={car.title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/10">
+            <span className="text-3xl font-bold text-muted-foreground/30">{car.brand}</span>
+          </div>
+        )}
         {/* Source Badge */}
         <div className="absolute top-2 left-2">
           <span className="px-2 py-1 bg-background/90 backdrop-blur rounded-md text-xs font-medium text-foreground">

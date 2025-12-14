@@ -122,7 +122,7 @@ const Index = () => {
     country: db.country,
     source: db.source,
     sourceUrl: db.source_url,
-    image: db.image || 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80',
+    image: db.image || null,
     listingUrl: db.listing_url || db.source_url,
   }), []);
 
@@ -146,6 +146,10 @@ const Index = () => {
             
             // Skip if already known
             if (knownListingsRef.current.has(listingId)) continue;
+            
+            // Apply year/price filters from saved search
+            if (search.min_year && listing.year < search.min_year) continue;
+            if (search.max_price && listing.price > search.max_price) continue;
             
             // Add to known
             knownListingsRef.current.add(listingId);
@@ -240,17 +244,23 @@ const Index = () => {
     }
 
     const modelValue = newModel.trim() || '*'; // Use * for "all models"
+    const yearValue = minYear ? parseInt(minYear) : null;
+    const priceValue = maxPrice ? parseInt(maxPrice) : null;
 
     const success = await saveCar(
       `search-${newBrand}-${modelValue}-${Date.now()}`,
       newBrand.trim(),
       modelValue,
-      modelValue === '*' ? newBrand.trim() : `${newBrand.trim()} ${modelValue}`
+      modelValue === '*' ? newBrand.trim() : `${newBrand.trim()} ${modelValue}`,
+      yearValue,
+      priceValue
     );
 
     if (success) {
       setNewBrand('');
       setNewModel('');
+      setMinYear('');
+      setMaxPrice('');
       isFirstCheckRef.current = true;
       setTimeout(() => checkForNewListings(true), 500);
     }
@@ -401,7 +411,9 @@ const Index = () => {
                   >
                     <Car className="w-4 h-4 text-green-600" />
                     <span className="text-sm font-medium text-foreground">
-                      {car.brand} {car.model === '*' ? '(visi modeliai)' : car.model}
+                      {car.brand} {car.model === '*' ? '(visi)' : car.model}
+                      {car.min_year && <span className="text-muted-foreground"> nuo {car.min_year}</span>}
+                      {car.max_price && <span className="text-muted-foreground"> iki {car.max_price.toLocaleString('lt-LT')}€</span>}
                     </span>
                     <button
                       onClick={() => removeCar(car.external_id)}
