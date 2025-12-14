@@ -1,25 +1,32 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Header from '@/components/Header';
 import CarCard from '@/components/CarCard';
 import { mockCars, carSources, CarListing } from '@/data/mockCars';
 import { scrapeApi, DbCarListing } from '@/lib/api/scrapeApi';
-import { Search, Car, RefreshCw, Loader2 } from 'lucide-react';
+import { useSavedCars } from '@/hooks/useSavedCars';
+import { Search, Car, RefreshCw, Loader2, Bell } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
+
+const REFRESH_INTERVAL = 5000; // 5 seconds
 
 const Index = () => {
   const [search, setSearch] = useState('');
   const [selectedBrand, setSelectedBrand] = useState('all');
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [priceRange, setPriceRange] = useState('all');
-  const [listings, setListings] = useState<CarListing[]>(mockCars);
-  const [isLoading, setIsLoading] = useState(false);
+  const [listings, setListings] = useState<CarListing[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
+  
+  const { savedCars, checkNewListings, initializeKnownListings } = useSavedCars();
+  const isFirstLoad = useRef(true);
 
   // Convert DB listings to CarListing format
-  const convertDbToCarListing = (db: DbCarListing): CarListing => ({
+  const convertDbToCarListing = useCallback((db: DbCarListing): CarListing => ({
     id: db.id,
     title: db.title,
     brand: db.brand,
@@ -35,42 +42,65 @@ const Index = () => {
     sourceUrl: db.source_url,
     image: db.image || 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80',
     listingUrl: db.listing_url || db.source_url,
-  });
+  }), []);
 
-  // Load cached listings on mount
-  useEffect(() => {
-    const loadListings = async () => {
-      try {
-        const cachedListings = await scrapeApi.getListings();
-        if (cachedListings.length > 0) {
-          setListings(cachedListings.map(convertDbToCarListing));
-          setLastUpdated(new Date(cachedListings[0].scraped_at));
+  // Load listings
+  const loadListings = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
+    
+    try {
+      const cachedListings = await scrapeApi.getListings();
+      
+      if (cachedListings.length > 0) {
+        const converted = cachedListings.map(convertDbToCarListing);
+        
+        // Check for new listings (only after first load)
+        if (!isFirstLoad.current) {
+          checkNewListings(cachedListings);
+        } else {
+          initializeKnownListings(cachedListings);
+          isFirstLoad.current = false;
         }
-      } catch (error) {
-        console.error('Error loading listings:', error);
+        
+        setListings(converted);
+        setLastUpdated(new Date());
+      } else if (listings.length === 0) {
+        // Fallback to mock data if DB is empty
+        setListings(mockCars);
       }
-    };
+    } catch (error) {
+      console.error('Error loading listings:', error);
+      if (listings.length === 0) {
+        setListings(mockCars);
+      }
+    } finally {
+      setIsLoading(false);
+      setCountdown(REFRESH_INTERVAL / 1000);
+    }
+  }, [convertDbToCarListing, checkNewListings, initializeKnownListings, listings.length]);
+
+  // Initial load
+  useEffect(() => {
     loadListings();
   }, []);
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 5 seconds
   useEffect(() => {
-    const interval = setInterval(async () => {
-      if (isLoading) return;
-      
-      try {
-        const cachedListings = await scrapeApi.getListings();
-        if (cachedListings.length > 0) {
-          setListings(cachedListings.map(convertDbToCarListing));
-          setLastUpdated(new Date(cachedListings[0].scraped_at));
-        }
-      } catch (error) {
-        console.error('Auto-refresh error:', error);
-      }
-    }, 30000);
+    const interval = setInterval(() => {
+      loadListings(true);
+    }, REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [loadListings]);
+
+  // Countdown timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown(prev => (prev <= 1 ? REFRESH_INTERVAL / 1000 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     if (isLoading) return;
@@ -84,16 +114,19 @@ const Index = () => {
     try {
       const newListings = await scrapeApi.scrapeAll(true);
       if (newListings.length > 0) {
-        setListings(newListings.map(convertDbToCarListing));
+        const converted = newListings.map(convertDbToCarListing);
+        checkNewListings(newListings);
+        setListings(converted);
         setLastUpdated(new Date());
         toast({
           title: 'Atnaujinta!',
           description: `Rasta ${newListings.length} skelbimų`,
         });
       } else {
+        await loadListings();
         toast({
-          title: 'Duomenys iš cache',
-          description: 'Naudojami išsaugoti duomenys',
+          title: 'Duomenys atnaujinti',
+          description: 'Rodomi naujausi duomenys',
         });
       }
     } catch (error) {
@@ -104,8 +137,9 @@ const Index = () => {
       });
     } finally {
       setIsLoading(false);
+      setCountdown(REFRESH_INTERVAL / 1000);
     }
-  }, [isLoading]);
+  }, [isLoading, convertDbToCarListing, checkNewListings, loadListings]);
 
   const brands = useMemo(() => {
     const uniqueBrands = [...new Set(listings.map(car => car.brand))];
@@ -151,11 +185,23 @@ const Index = () => {
             <p className="text-sm md:text-base text-muted-foreground">
               {listings.length} skelbimai iš {carSources.length} šaltinių
             </p>
-            {lastUpdated && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Atnaujinta: {lastUpdated.toLocaleString('lt-LT')}
-              </p>
-            )}
+            <div className="flex items-center justify-center gap-3 mt-2">
+              {lastUpdated && (
+                <span className="text-xs text-muted-foreground">
+                  Atnaujinta: {lastUpdated.toLocaleTimeString('lt-LT')}
+                </span>
+              )}
+              <span className="text-xs text-primary font-medium flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" />
+                {countdown}s
+              </span>
+              {savedCars.length > 0 && (
+                <span className="text-xs text-green-600 flex items-center gap-1">
+                  <Bell className="w-3 h-3" />
+                  {savedCars.length} stebima
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Search Bar */}
