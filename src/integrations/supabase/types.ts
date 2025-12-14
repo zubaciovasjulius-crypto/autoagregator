@@ -77,6 +77,78 @@ export type Database = {
         }
         Relationships: []
       }
+      found_listings: {
+        Row: {
+          brand: string
+          country: string
+          created_at: string
+          expires_at: string
+          external_id: string
+          found_at: string
+          fuel: string | null
+          id: string
+          image: string | null
+          listing_id: string
+          listing_url: string | null
+          location: string | null
+          mileage: number | null
+          model: string
+          price: number
+          source: string
+          source_url: string
+          title: string
+          transmission: string | null
+          user_id: string
+          year: number
+        }
+        Insert: {
+          brand: string
+          country: string
+          created_at?: string
+          expires_at?: string
+          external_id: string
+          found_at?: string
+          fuel?: string | null
+          id?: string
+          image?: string | null
+          listing_id: string
+          listing_url?: string | null
+          location?: string | null
+          mileage?: number | null
+          model: string
+          price: number
+          source: string
+          source_url: string
+          title: string
+          transmission?: string | null
+          user_id: string
+          year: number
+        }
+        Update: {
+          brand?: string
+          country?: string
+          created_at?: string
+          expires_at?: string
+          external_id?: string
+          found_at?: string
+          fuel?: string | null
+          id?: string
+          image?: string | null
+          listing_id?: string
+          listing_url?: string | null
+          location?: string | null
+          mileage?: number | null
+          model?: string
+          price?: number
+          source?: string
+          source_url?: string
+          title?: string
+          transmission?: string | null
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
