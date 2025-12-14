@@ -63,9 +63,13 @@ Deno.serve(async (req) => {
     const isAllModels = !model || model === '*';
     const allListings: CarListing[] = [];
 
+    // Scrape sources sequentially with delay to avoid rate limits
     // ===== SOURCE 1: TheParking.eu =====
     const theParkingListings = await scrapeTheParking(firecrawlKey, brand, model, isAllModels);
     allListings.push(...theParkingListings);
+
+    // Small delay between sources to help with rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // ===== SOURCE 2: Schadeautos.nl =====
     const schadeautosListings = await scrapeSchadeautos(firecrawlKey, brand, model, isAllModels);
