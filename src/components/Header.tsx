@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useAdmin } from '@/hooks/useAdmin';
 import { Button } from '@/components/ui/button';
-import { LogIn, LogOut, Heart, User } from 'lucide-react';
+import { LogIn, LogOut, User, Shield } from 'lucide-react';
 import logo from '@/assets/autokopers-logo.png';
 
 const Header = () => {
   const { user, signOut, loading } = useAuth();
+  const { isAdmin } = useAdmin();
 
   return (
     <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b border-border">
@@ -30,9 +32,17 @@ const Header = () => {
           <div className="flex items-center gap-2">
             {loading ? null : user ? (
               <>
+                {isAdmin && (
+                  <Link to="/admin">
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <Shield className="w-4 h-4" />
+                      <span className="hidden sm:inline">Admin</span>
+                    </Button>
+                  </Link>
+                )}
                 <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
                   <User className="w-4 h-4" />
-                  <span className="max-w-[150px] truncate">{user.email}</span>
+                  <span className="max-w-[120px] truncate">{user.email}</span>
                 </div>
                 <Button
                   variant="ghost"
