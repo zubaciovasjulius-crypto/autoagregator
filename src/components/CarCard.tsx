@@ -1,5 +1,9 @@
 import { CarListing } from '@/data/mockCars';
-import { MapPin, Fuel, Gauge, Calendar, ExternalLink } from 'lucide-react';
+import { MapPin, Fuel, Gauge, Calendar, ExternalLink, Heart } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useSavedCars } from '@/hooks/useSavedCars';
+import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 interface CarCardProps {
   car: CarListing;
@@ -7,12 +11,37 @@ interface CarCardProps {
 }
 
 const CarCard = ({ car, index }: CarCardProps) => {
+  const { user } = useAuth();
+  const { isCarSaved, saveCar, removeCar } = useSavedCars();
+  
+  const isSaved = isCarSaved(car.id);
+
   const formatPrice = (price: number) => {
     return price.toLocaleString('lt-LT') + ' €';
   };
 
   const formatMileage = (mileage: number) => {
     return mileage.toLocaleString('lt-LT') + ' km';
+  };
+
+  const handleSaveToggle = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!user) {
+      toast({
+        title: 'Prisijunkite',
+        description: 'Norėdami išsaugoti skelbimus, prisijunkite',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (isSaved) {
+      await removeCar(car.id);
+    } else {
+      await saveCar(car.id, car.brand, car.model, car.title);
+    }
   };
 
   return (
@@ -34,6 +63,18 @@ const CarCard = ({ car, index }: CarCardProps) => {
             {car.source}
           </span>
         </div>
+        {/* Save Button */}
+        <button
+          onClick={handleSaveToggle}
+          className={cn(
+            "absolute top-2 right-2 p-2 rounded-full backdrop-blur transition-all",
+            isSaved 
+              ? "bg-primary text-primary-foreground" 
+              : "bg-background/90 text-muted-foreground hover:text-primary hover:bg-background"
+          )}
+        >
+          <Heart className={cn("w-4 h-4", isSaved && "fill-current")} />
+        </button>
         {/* Price Badge */}
         <div className="absolute bottom-2 right-2">
           <span className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-bold shadow-lg">
