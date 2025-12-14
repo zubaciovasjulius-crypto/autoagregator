@@ -1,8 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import Header from '@/components/Header';
-import CarCard from '@/components/CarCard';
-import { carSources, CarListing } from '@/data/mockCars';
-import { scrapeApi, DbCarListing } from '@/lib/api/scrapeApi';
+import { carSources } from '@/data/mockCars';
 import { useSavedCars } from '@/hooks/useSavedCars';
 import { useAuth } from '@/hooks/useAuth';
 import { Bell, ExternalLink, Trash2, Car, LogIn, Plus, Loader2 } from 'lucide-react';
@@ -15,53 +13,13 @@ const Index = () => {
   const { user } = useAuth();
   const { savedCars, removeCar, saveCar, loading, fetchSavedCars } = useSavedCars();
   
-  // Listings state
-  const [listings, setListings] = useState<CarListing[]>([]);
-  const [isLoadingListings, setIsLoadingListings] = useState(true);
-  
   // New search form
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
 
-  // Convert DB listings to CarListing format
-  const convertDbToCarListing = useCallback((db: DbCarListing): CarListing => ({
-    id: db.id,
-    title: db.title,
-    brand: db.brand,
-    model: db.model,
-    year: db.year,
-    price: db.price,
-    mileage: db.mileage || 0,
-    fuel: db.fuel || 'Dyzelinas',
-    transmission: db.transmission || 'Automatinė',
-    location: db.location || '',
-    country: db.country,
-    source: db.source,
-    sourceUrl: db.source_url,
-    image: db.image || 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80',
-    listingUrl: db.listing_url || db.source_url,
-  }), []);
-
-  // Load listings from database
-  const loadListings = useCallback(async () => {
-    setIsLoadingListings(true);
-    try {
-      const cachedListings = await scrapeApi.getListings();
-      if (cachedListings.length > 0) {
-        const converted = cachedListings.map(convertDbToCarListing);
-        setListings(converted);
-      }
-    } catch (error) {
-      console.error('Error loading listings:', error);
-    } finally {
-      setIsLoadingListings(false);
-    }
-  }, [convertDbToCarListing]);
-
   useEffect(() => {
     fetchSavedCars();
-    loadListings();
-  }, [fetchSavedCars, loadListings]);
+  }, [fetchSavedCars]);
 
   // Add new saved search
   const handleAddSearch = async () => {
@@ -108,36 +66,14 @@ const Index = () => {
               Automobilių paieška Europoje
             </h1>
             <p className="text-sm md:text-base text-muted-foreground">
-              {listings.length} skelbimai iš {carSources.length} šaltinių
+              Ieškokite automobilių {carSources.length} Europos portaluose
             </p>
           </div>
         </div>
       </section>
 
-      {/* Source Links */}
-      <section className="container mx-auto px-4 py-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <ExternalLink className="w-5 h-5" />
-          Šaltiniai
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          {carSources.map((source) => (
-            <a
-              key={source.id}
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-card hover:bg-primary/10 border border-border transition-all text-sm font-medium"
-            >
-              {source.name}
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          ))}
-        </div>
-      </section>
-
       {/* Saved Searches Section */}
-      <section className="container mx-auto px-4 py-6 border-t border-border">
+      <section className="container mx-auto px-4 py-6">
         <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
           <Bell className="w-5 h-5" />
           Išsaugotos paieškos
@@ -212,38 +148,38 @@ const Index = () => {
         )}
       </section>
 
-      {/* Car Listings Grid */}
+      {/* Source Links */}
       <section className="container mx-auto px-4 py-6 border-t border-border">
         <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Car className="w-5 h-5" />
-          Skelbimai ({listings.length})
+          <ExternalLink className="w-5 h-5" />
+          Automobilių portalai
         </h2>
-
-        {isLoadingListings ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          </div>
-        ) : listings.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {listings.map((car, index) => (
-              <CarCard key={car.id} car={car} index={index} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12 bg-muted/30 rounded-xl border border-border">
-            <Car className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-semibold text-foreground mb-2">
-              Skelbimų nėra
-            </h3>
-            <p className="text-muted-foreground text-sm">
-              Duomenų bazėje dar nėra skelbimų
-            </p>
-          </div>
-        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {carSources.map((source) => (
+            <a
+              key={source.id}
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-4 p-4 rounded-xl bg-card hover:bg-primary/10 border border-border transition-all hover:shadow-lg group"
+            >
+              <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+                {source.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                  {source.name}
+                </h3>
+                <p className="text-sm text-muted-foreground">{source.country}</p>
+              </div>
+              <ExternalLink className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            </a>
+          ))}
+        </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border py-6 bg-muted/30">
+      <footer className="border-t border-border py-6 bg-muted/30 mt-8">
         <div className="container mx-auto px-4 text-center">
           <p className="text-sm text-muted-foreground">
             AutoAgregator by AutoKopers © {new Date().getFullYear()}
