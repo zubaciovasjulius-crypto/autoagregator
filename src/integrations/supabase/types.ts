@@ -173,6 +173,8 @@ export type Database = {
           created_at: string
           external_id: string
           id: string
+          max_price: number | null
+          min_year: number | null
           model: string
           title: string
           user_id: string
@@ -182,6 +184,8 @@ export type Database = {
           created_at?: string
           external_id: string
           id?: string
+          max_price?: number | null
+          min_year?: number | null
           model: string
           title: string
           user_id: string
@@ -191,6 +195,8 @@ export type Database = {
           created_at?: string
           external_id?: string
           id?: string
+          max_price?: number | null
+          min_year?: number | null
           model?: string
           title?: string
           user_id?: string

@@ -9,6 +9,8 @@ interface SavedCar {
   brand: string;
   model: string;
   title: string;
+  min_year?: number | null;
+  max_price?: number | null;
 }
 
 // Notification sound
@@ -79,7 +81,14 @@ export const useSavedCars = () => {
   }, [user]);
 
   // Save a car
-  const saveCar = async (externalId: string, brand: string, model: string, title: string) => {
+  const saveCar = async (
+    externalId: string, 
+    brand: string, 
+    model: string, 
+    title: string,
+    minYear?: number | null,
+    maxPrice?: number | null
+  ) => {
     if (!user) return false;
 
     try {
@@ -90,22 +99,29 @@ export const useSavedCars = () => {
           external_id: externalId,
           brand,
           model,
-          title
+          title,
+          min_year: minYear || null,
+          max_price: maxPrice || null,
         });
 
       if (error) throw error;
       
       await fetchSavedCars();
+      
+      let description = `Stebimi: ${brand} ${model === '*' ? '(visi modeliai)' : model}`;
+      if (minYear) description += `, nuo ${minYear} m.`;
+      if (maxPrice) description += `, iki ${maxPrice.toLocaleString('lt-LT')} €`;
+      
       toast({
         title: '💾 Išsaugota!',
-        description: `Gausite pranešimą, kai atsiras naujas ${brand} ${model}`,
+        description,
       });
       return true;
     } catch (error: any) {
       if (error.code === '23505') {
         toast({
           title: 'Jau išsaugotas',
-          description: 'Šis automobilis jau yra mėgstamiausiuose',
+          description: 'Ši paieška jau yra sąraše',
         });
       } else {
         console.error('Error saving car:', error);
