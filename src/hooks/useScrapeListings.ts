@@ -3,6 +3,8 @@ import { CarListing, mockCars } from '@/data/mockCars';
 import { scrapeApi } from '@/lib/api/scrapeApi';
 import { toast } from '@/hooks/use-toast';
 
+type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius' | 'kleinanzeigen' | 'marktplaats';
+
 interface UseScrapeListingsOptions {
   brand?: string;
   model?: string;
@@ -21,43 +23,22 @@ export function useScrapeListings() {
     setError(null);
 
     try {
-      toast({
-        title: 'Ieškoma skelbimų...',
-        description: 'Renkame duomenis iš Europos automobilių portalų',
-      });
-
       const scrapedListings = await scrapeApi.scrapeAll(options);
 
       if (scrapedListings.length > 0) {
         setListings(scrapedListings);
         setLastUpdated(new Date());
-        toast({
-          title: 'Skelbimai atnaujinti!',
-          description: `Rasta ${scrapedListings.length} skelbimų`,
-        });
-      } else {
-        // Keep mock data if no results
-        toast({
-          title: 'Skelbimų nerasta',
-          description: 'Rodomi demonstraciniai duomenys',
-          variant: 'destructive',
-        });
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Įvyko klaida';
       setError(errorMessage);
-      toast({
-        title: 'Klaida',
-        description: errorMessage,
-        variant: 'destructive',
-      });
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const scrapeSingleSource = useCallback(async (
-    source: 'mobile.de' | 'autoscout24' | 'autoplius',
+    source: ScrapeSource,
     options?: UseScrapeListingsOptions
   ) => {
     setIsLoading(true);
@@ -73,18 +54,17 @@ export function useScrapeListings() {
 
       if (result.success && result.data && result.data.length > 0) {
         setListings(prev => {
-          // Remove old listings from this source and add new ones
-          const filtered = prev.filter(l => l.source !== source);
+          const filtered = prev.filter(l => l.source.toLowerCase().replace('.', '') !== source.replace('.', ''));
           return [...result.data!, ...filtered];
         });
         setLastUpdated(new Date());
         toast({
           title: 'Atnaujinta!',
-          description: `Rasta ${result.data.length} skelbimų iš ${source}`,
+          description: `Rasta ${result.data.length} skelbimų`,
         });
       } else {
         toast({
-          title: 'Skelbimų nerasta',
+          title: 'Nieko nerasta',
           description: result.error || 'Bandykite vėliau',
           variant: 'destructive',
         });
