@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { CarListing } from '@/data/mockCars';
 
-type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius';
+type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius' | 'kleinanzeigen' | 'marktplaats';
 
 interface ScrapeOptions {
   brand?: string;
@@ -37,7 +37,7 @@ export const scrapeApi = {
   },
 
   async scrapeAll(options?: ScrapeOptions): Promise<CarListing[]> {
-    const sources: ScrapeSource[] = ['mobile.de', 'autoscout24', 'autoplius'];
+    const sources: ScrapeSource[] = ['mobile.de', 'autoscout24', 'autoplius', 'kleinanzeigen', 'marktplaats'];
     const allListings: CarListing[] = [];
 
     const results = await Promise.allSettled(

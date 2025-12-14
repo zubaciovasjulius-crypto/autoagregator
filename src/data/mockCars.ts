@@ -13,6 +13,7 @@ export interface CarListing {
   source: string;
   sourceUrl: string;
   image: string;
+  images?: string[];
   power: number;
   addedDate: string;
 }
@@ -28,12 +29,11 @@ export const europeanCountries = [
 ];
 
 export const carSources = [
-  { name: 'Autoplius.lt', country: 'Lietuva' },
-  { name: 'Mobile.de', country: 'Vokietija' },
-  { name: 'AutoScout24', country: 'Vokietija' },
-  { name: 'OtoMoto.pl', country: 'Lenkija' },
-  { name: 'SS.lv', country: 'Latvija' },
-  { name: 'Auto24.ee', country: 'Estija' },
+  { name: 'Mobile.de', country: 'Vokietija', id: 'mobile.de' },
+  { name: 'AutoScout24', country: 'Vokietija', id: 'autoscout24' },
+  { name: 'Autoplius.lt', country: 'Lietuva', id: 'autoplius' },
+  { name: 'Kleinanzeigen', country: 'Vokietija', id: 'kleinanzeigen' },
+  { name: 'Marktplaats', country: 'Nyderlandai', id: 'marktplaats' },
 ];
 
 export const mockCars: CarListing[] = [
@@ -52,6 +52,11 @@ export const mockCars: CarListing[] = [
     source: 'Mobile.de',
     sourceUrl: 'https://mobile.de',
     image: 'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=800&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=800&q=80',
+      'https://images.unsplash.com/photo-1520050206757-83e287175c74?w=800&q=80',
+      'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&q=80',
+    ],
     power: 286,
     addedDate: '2024-01-10',
   },
@@ -67,9 +72,13 @@ export const mockCars: CarListing[] = [
     transmission: 'Automatinė',
     location: 'Berlynas',
     country: 'Vokietija',
-    source: 'AutoScout24',
-    sourceUrl: 'https://autoscout24.de',
+    source: 'Kleinanzeigen',
+    sourceUrl: 'https://kleinanzeigen.de',
     image: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&q=80',
+      'https://images.unsplash.com/photo-1617531653332-bd46c24f2068?w=800&q=80',
+    ],
     power: 194,
     addedDate: '2024-01-09',
   },
@@ -88,6 +97,9 @@ export const mockCars: CarListing[] = [
     source: 'Autoplius.lt',
     sourceUrl: 'https://autoplius.lt',
     image: 'https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=800&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=800&q=80',
+    ],
     power: 265,
     addedDate: '2024-01-08',
   },
@@ -101,11 +113,15 @@ export const mockCars: CarListing[] = [
     mileage: 45000,
     fuel: 'Benzinas',
     transmission: 'Automatinė',
-    location: 'Varšuva',
-    country: 'Lenkija',
-    source: 'OtoMoto.pl',
-    sourceUrl: 'https://otomoto.pl',
+    location: 'Amsterdamas',
+    country: 'Nyderlandai',
+    source: 'Marktplaats',
+    sourceUrl: 'https://marktplaats.nl',
     image: 'https://images.unsplash.com/photo-1471444928139-48c5bf5173f8?w=800&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1471444928139-48c5bf5173f8?w=800&q=80',
+      'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=800&q=80',
+    ],
     power: 245,
     addedDate: '2024-01-07',
   },
@@ -121,9 +137,12 @@ export const mockCars: CarListing[] = [
     transmission: 'Automatinė',
     location: 'Amsterdamas',
     country: 'Nyderlandai',
-    source: 'AutoScout24',
-    sourceUrl: 'https://autoscout24.nl',
+    source: 'Marktplaats',
+    sourceUrl: 'https://marktplaats.nl',
     image: 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=800&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=800&q=80',
+    ],
     power: 440,
     addedDate: '2024-01-06',
   },
@@ -142,43 +161,10 @@ export const mockCars: CarListing[] = [
     source: 'Mobile.de',
     sourceUrl: 'https://mobile.de',
     image: 'https://images.unsplash.com/photo-1614200179396-2bdb77ebf81b?w=800&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1614200179396-2bdb77ebf81b?w=800&q=80',
+    ],
     power: 530,
     addedDate: '2024-01-05',
-  },
-  {
-    id: '7',
-    title: 'Volvo XC60 T6 AWD Inscription',
-    brand: 'Volvo',
-    model: 'XC60',
-    year: 2021,
-    price: 44500,
-    mileage: 52000,
-    fuel: 'Hibridas',
-    transmission: 'Automatinė',
-    location: 'Ryga',
-    country: 'Latvija',
-    source: 'SS.lv',
-    sourceUrl: 'https://ss.lv',
-    image: 'https://images.unsplash.com/photo-1619767886558-efdc259cde1a?w=800&q=80',
-    power: 340,
-    addedDate: '2024-01-04',
-  },
-  {
-    id: '8',
-    title: 'Skoda Octavia RS iV',
-    brand: 'Skoda',
-    model: 'Octavia RS',
-    year: 2022,
-    price: 36900,
-    mileage: 41000,
-    fuel: 'Hibridas',
-    transmission: 'Automatinė',
-    location: 'Talinas',
-    country: 'Estija',
-    source: 'Auto24.ee',
-    sourceUrl: 'https://auto24.ee',
-    image: 'https://images.unsplash.com/photo-1609521263047-f8f205293f24?w=800&q=80',
-    power: 245,
-    addedDate: '2024-01-03',
   },
 ];
