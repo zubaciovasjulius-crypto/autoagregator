@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 import { toast } from '@/hooks/use-toast';
 import CarCard from '@/components/CarCard';
 
-const REFRESH_INTERVAL = 30000; // 30 seconds
+const REFRESH_INTERVAL = 90000; // 90 seconds - to avoid Firecrawl rate limits
 
 // Notification sound
 const playNotificationSound = () => {
