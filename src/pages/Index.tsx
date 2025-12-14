@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom';
 import { toast } from '@/hooks/use-toast';
 import CarCard from '@/components/CarCard';
 
-const REFRESH_INTERVAL = 30000; // 30 seconds
+const REFRESH_INTERVAL = 60000; // 60 seconds - prevents rate limiting
 
 // Notification sound
 const playNotificationSound = () => {
@@ -104,17 +104,18 @@ const Index = () => {
     listingUrl: db.listing_url || db.source_url,
   }), []);
 
-  // Check all saved searches for new listings
-  const checkForNewListings = useCallback(async () => {
+  // Check all saved searches for new listings (uses cache - no rate limit)
+  const checkForNewListings = useCallback(async (forceRefresh: boolean = false) => {
     if (!user || savedCars.length === 0) return;
     
     setIsChecking(true);
     
     try {
       for (const search of savedCars) {
-        console.log(`Checking ${search.brand} ${search.model}...`);
+        console.log(`Checking ${search.brand} ${search.model}... (refresh: ${forceRefresh})`);
         
-        const result = await scrapeApi.searchCars(search.brand, search.model);
+        // Only force refresh on first check or manual refresh
+        const result = await scrapeApi.searchCars(search.brand, search.model, forceRefresh && isFirstCheckRef.current);
         
         if (result.success && result.data) {
           const foundNew: CarListing[] = [];
@@ -152,8 +153,8 @@ const Index = () => {
           }
         }
         
-        // Small delay between searches
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Delay between searches to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
       
       isFirstCheckRef.current = false;
@@ -169,7 +170,7 @@ const Index = () => {
   // Initial check when user logs in and has saved searches
   useEffect(() => {
     if (user && savedCars.length > 0 && isFirstCheckRef.current) {
-      checkForNewListings();
+      checkForNewListings(true); // First check does a fresh scrape
     }
   }, [user, savedCars, checkForNewListings]);
 

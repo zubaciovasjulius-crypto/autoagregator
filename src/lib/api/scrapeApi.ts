@@ -37,11 +37,11 @@ export const scrapeApi = {
     return (data || []) as DbCarListing[];
   },
 
-  // Search for specific brand/model via TheParking
-  async searchCars(brand: string, model: string): Promise<{ success: boolean; data?: DbCarListing[]; error?: string; count?: number }> {
+  // Search for specific brand/model - use cache by default
+  async searchCars(brand: string, model: string, forceRefresh: boolean = false): Promise<{ success: boolean; data?: DbCarListing[]; error?: string; count?: number }> {
     try {
       const { data, error } = await supabase.functions.invoke('scrape-cars', {
-        body: { brand, model, forceRefresh: true },
+        body: { brand, model, forceRefresh },
       });
 
       if (error) {
