@@ -77,6 +77,54 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      saved_cars: {
+        Row: {
+          brand: string
+          created_at: string
+          external_id: string
+          id: string
+          model: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          brand: string
+          created_at?: string
+          external_id: string
+          id?: string
+          model: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          brand?: string
+          created_at?: string
+          external_id?: string
+          id?: string
+          model?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       scrape_status: {
         Row: {
           error_message: string | null
