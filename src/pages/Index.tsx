@@ -79,6 +79,8 @@ const Index = () => {
   // Form
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
+  const [minYear, setMinYear] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
   
   // Status
   const [isChecking, setIsChecking] = useState(false);
@@ -345,24 +347,44 @@ const Index = () => {
         ) : (
           <div className="space-y-4">
             {/* Add new search form */}
-            <div className="flex flex-col sm:flex-row gap-2 p-4 bg-muted/30 rounded-xl border border-border">
-              <Input
-                value={newBrand}
-                onChange={(e) => setNewBrand(e.target.value)}
-                placeholder="Markė (pvz. BMW)"
-                className="flex-1"
-              />
-              <Input
-                value={newModel}
-                onChange={(e) => setNewModel(e.target.value)}
-                placeholder="Modelis (neprivaloma)"
-                className="flex-1"
-                onKeyDown={(e) => e.key === 'Enter' && handleAddSearch()}
-              />
-              <Button onClick={handleAddSearch} className="gap-2">
-                <Plus className="w-4 h-4" />
-                Stebėti
-              </Button>
+            <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-3">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  value={newBrand}
+                  onChange={(e) => setNewBrand(e.target.value)}
+                  placeholder="Markė (pvz. BMW)"
+                  className="flex-1"
+                />
+                <Input
+                  value={newModel}
+                  onChange={(e) => setNewModel(e.target.value)}
+                  placeholder="Modelis (neprivaloma)"
+                  className="flex-1"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  type="number"
+                  value={minYear}
+                  onChange={(e) => setMinYear(e.target.value)}
+                  placeholder="Min. metai (pvz. 2015)"
+                  className="flex-1"
+                  min="2000"
+                  max="2025"
+                />
+                <Input
+                  type="number"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  placeholder="Max. kaina € (pvz. 30000)"
+                  className="flex-1"
+                  min="0"
+                />
+                <Button onClick={handleAddSearch} className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Stebėti
+                </Button>
+              </div>
             </div>
 
             {/* Saved searches list */}
