@@ -29,11 +29,11 @@ export const europeanCountries = [
 ];
 
 export const carSources = [
-  { name: 'Mobile.de', country: 'Vokietija', id: 'mobile.de' },
-  { name: 'AutoScout24', country: 'Vokietija', id: 'autoscout24' },
-  { name: 'Autoplius.lt', country: 'Lietuva', id: 'autoplius' },
-  { name: 'Kleinanzeigen', country: 'Vokietija', id: 'kleinanzeigen' },
-  { name: 'Marktplaats', country: 'Nyderlandai', id: 'marktplaats' },
+  { name: 'Mobile.de', country: 'Vokietija', id: 'mobile.de', url: 'https://mobile.de' },
+  { name: 'AutoScout24', country: 'Vokietija', id: 'autoscout24', url: 'https://autoscout24.de' },
+  { name: 'Autoplius.lt', country: 'Lietuva', id: 'autoplius', url: 'https://autoplius.lt' },
+  { name: 'Kleinanzeigen', country: 'Vokietija', id: 'kleinanzeigen', url: 'https://kleinanzeigen.de' },
+  { name: 'Marktplaats', country: 'Nyderlandai', id: 'marktplaats', url: 'https://marktplaats.nl' },
 ];
 
 export const mockCars: CarListing[] = [
