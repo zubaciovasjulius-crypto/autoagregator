@@ -1,7 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius' | 'kleinanzeigen' | 'marktplaats';
-
 export interface DbCarListing {
   id: string;
   external_id: string;
@@ -22,15 +20,6 @@ export interface DbCarListing {
   scraped_at: string;
 }
 
-export interface ScrapeStatus {
-  source: string;
-  last_scraped_at: string | null;
-  status: string;
-  listings_count: number;
-}
-
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export const scrapeApi = {
   // Get all cached listings
   async getListings(): Promise<DbCarListing[]> {
@@ -48,57 +37,40 @@ export const scrapeApi = {
     return (data || []) as DbCarListing[];
   },
 
-  // Get scrape status for all sources
-  async getStatus(): Promise<ScrapeStatus[]> {
-    const { data, error } = await supabase
-      .from('scrape_status')
-      .select('*');
-
-    if (error) {
-      console.error('Error fetching status:', error);
-      return [];
-    }
-
-    return (data || []) as ScrapeStatus[];
-  },
-
-  // Scrape a single source
-  async scrapeSource(source: ScrapeSource, forceRefresh = false): Promise<{ success: boolean; data?: DbCarListing[]; cached?: boolean; error?: string }> {
+  // Search for specific brand/model via TheParking
+  async searchCars(brand: string, model: string): Promise<{ success: boolean; data?: DbCarListing[]; error?: string; count?: number }> {
     try {
       const { data, error } = await supabase.functions.invoke('scrape-cars', {
-        body: { source, forceRefresh },
+        body: { brand, model, forceRefresh: true },
       });
 
       if (error) {
-        console.error('Scrape error:', error);
+        console.error('Search error:', error);
         return { success: false, error: error.message };
       }
 
       return data;
     } catch (error) {
-      console.error('Scrape error:', error);
+      console.error('Search error:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   },
 
-  // Scrape all sources sequentially with delays
-  async scrapeAll(forceRefresh = false): Promise<DbCarListing[]> {
-    const sources: ScrapeSource[] = ['mobile.de', 'autoscout24', 'autoplius'];
-    const allListings: DbCarListing[] = [];
+  // Get listings for specific brand/model from cache
+  async getListingsForSearch(brand: string, model: string): Promise<DbCarListing[]> {
+    const { data, error } = await supabase
+      .from('car_listings')
+      .select('*')
+      .ilike('brand', `%${brand}%`)
+      .ilike('model', `%${model}%`)
+      .order('price', { ascending: true })
+      .limit(50);
 
-    for (const source of sources) {
-      try {
-        const result = await this.scrapeSource(source, forceRefresh);
-        if (result.success && result.data) {
-          allListings.push(...result.data);
-        }
-        // Wait 3 seconds between requests to avoid rate limiting
-        await delay(3000);
-      } catch (error) {
-        console.error(`Error scraping ${source}:`, error);
-      }
+    if (error) {
+      console.error('Error fetching listings:', error);
+      return [];
     }
 
-    return allListings;
+    return (data || []) as DbCarListing[];
   },
 };
