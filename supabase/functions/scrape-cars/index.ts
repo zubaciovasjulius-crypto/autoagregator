@@ -37,8 +37,8 @@ Deno.serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // If no brand/model specified, return cached listings
-    if (!brand || !model) {
+    // If no brand specified, return cached listings
+    if (!brand) {
       const { data: listings, error } = await supabase
         .from('car_listings')
         .select('*')
@@ -61,9 +61,13 @@ Deno.serve(async (req) => {
     }
 
     // Use TheParking.eu as source - they aggregate from many portals
-    const searchUrl = `https://www.theparking.eu/used-cars/${brand.toLowerCase()}-${model.toLowerCase()}.html`;
+    // If model is "*" or empty, search only by brand
+    const isAllModels = !model || model === '*';
+    const searchUrl = isAllModels 
+      ? `https://www.theparking.eu/used-cars/${brand.toLowerCase()}.html`
+      : `https://www.theparking.eu/used-cars/${brand.toLowerCase()}-${model.toLowerCase()}.html`;
     
-    console.log(`Scraping TheParking for ${brand} ${model}: ${searchUrl}`);
+    console.log(`Scraping TheParking for ${brand} ${isAllModels ? '(all models)' : model}: ${searchUrl}`);
 
     const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
@@ -91,9 +95,10 @@ Deno.serve(async (req) => {
     }
 
     // Parse listings from TheParking
-    const listings = parseTheParkingListings(scrapeData, brand, model);
+    const actualModel = isAllModels ? '' : model;
+    const listings = parseTheParkingListings(scrapeData, brand, actualModel);
 
-    console.log(`Found ${listings.length} listings for ${brand} ${model}`);
+    console.log(`Found ${listings.length} listings for ${brand} ${isAllModels ? '(all models)' : model}`);
 
     if (listings.length > 0) {
       // Upsert listings
@@ -107,11 +112,16 @@ Deno.serve(async (req) => {
     }
 
     // Return fresh listings from DB for this brand/model
-    const { data: freshListings } = await supabase
+    let query = supabase
       .from('car_listings')
       .select('*')
-      .ilike('brand', `%${brand}%`)
-      .ilike('model', `%${model}%`)
+      .ilike('brand', `%${brand}%`);
+    
+    if (!isAllModels) {
+      query = query.ilike('model', `%${model}%`);
+    }
+    
+    const { data: freshListings } = await query
       .order('scraped_at', { ascending: false })
       .limit(50);
 
