@@ -34,12 +34,12 @@ const Index = () => {
     scrapeListings(options);
   }, [filters, isLoading, scrapeListings]);
 
-  // Auto-refresh every 5 seconds
+  // Auto-refresh every 30 seconds to avoid rate limits
   useEffect(() => {
-    if (isAutoRefresh) {
+    if (isAutoRefresh && !isLoading) {
       intervalRef.current = setInterval(() => {
         handleRefresh();
-      }, 5000);
+      }, 30000);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -52,7 +52,7 @@ const Index = () => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isAutoRefresh, handleRefresh]);
+  }, [isAutoRefresh, isLoading, handleRefresh]);
 
   const filteredCars = useMemo(() => {
     return listings.filter((car) => {
@@ -107,8 +107,8 @@ const Index = () => {
               {lastUpdated && (
                 <span>Atnaujinta: {lastUpdated.toLocaleTimeString('lt-LT')}</span>
               )}
-              {isAutoRefresh && (
-                <span className="text-primary animate-pulse">• Auto kas 5s</span>
+              {isAutoRefresh && !isLoading && (
+                <span className="text-primary animate-pulse">• Auto kas 30s</span>
               )}
             </div>
           </div>

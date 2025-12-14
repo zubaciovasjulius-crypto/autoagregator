@@ -1,9 +1,7 @@
 import { useState, useCallback } from 'react';
 import { CarListing, mockCars } from '@/data/mockCars';
-import { scrapeApi } from '@/lib/api/scrapeApi';
+import { scrapeApi, ScrapeSource } from '@/lib/api/scrapeApi';
 import { toast } from '@/hooks/use-toast';
-
-type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius' | 'kleinanzeigen' | 'marktplaats';
 
 interface UseScrapeListingsOptions {
   brand?: string;

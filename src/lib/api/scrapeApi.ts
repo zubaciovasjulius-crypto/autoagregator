@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { CarListing } from '@/data/mockCars';
 
-type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius' | 'kleinanzeigen' | 'marktplaats';
+export type ScrapeSource = 'mobile.de' | 'autoscout24' | 'autoplius' | 'kleinanzeigen' | 'marktplaats';
 
 interface ScrapeOptions {
   brand?: string;
@@ -16,6 +16,8 @@ interface ScrapeResponse {
   source?: string;
   error?: string;
 }
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const scrapeApi = {
   async scrapeSource(source: ScrapeSource, options?: ScrapeOptions): Promise<ScrapeResponse> {
@@ -36,17 +38,21 @@ export const scrapeApi = {
     }
   },
 
+  // Sequential scraping with delays to avoid rate limits
   async scrapeAll(options?: ScrapeOptions): Promise<CarListing[]> {
-    const sources: ScrapeSource[] = ['mobile.de', 'autoscout24', 'autoplius', 'kleinanzeigen', 'marktplaats'];
+    const sources: ScrapeSource[] = ['mobile.de', 'autoscout24', 'autoplius'];
     const allListings: CarListing[] = [];
 
-    const results = await Promise.allSettled(
-      sources.map(source => this.scrapeSource(source, options))
-    );
-
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success && result.value.data) {
-        allListings.push(...result.value.data);
+    for (const source of sources) {
+      try {
+        const result = await this.scrapeSource(source, options);
+        if (result.success && result.data) {
+          allListings.push(...result.data);
+        }
+        // Wait 2 seconds between requests to avoid rate limiting
+        await delay(2000);
+      } catch (error) {
+        console.error(`Error scraping ${source}:`, error);
       }
     }
 
