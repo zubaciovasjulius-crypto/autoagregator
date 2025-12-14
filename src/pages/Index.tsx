@@ -228,20 +228,22 @@ const Index = () => {
       return;
     }
 
-    if (!newBrand.trim() || !newModel.trim()) {
+    if (!newBrand.trim()) {
       toast({
         title: 'Užpildykite laukus',
-        description: 'Įveskite markę ir modelį',
+        description: 'Įveskite bent markę',
         variant: 'destructive',
       });
       return;
     }
 
+    const modelValue = newModel.trim() || '*'; // Use * for "all models"
+
     const success = await saveCar(
-      `search-${newBrand}-${newModel}-${Date.now()}`,
+      `search-${newBrand}-${modelValue}-${Date.now()}`,
       newBrand.trim(),
-      newModel.trim(),
-      `${newBrand.trim()} ${newModel.trim()}`
+      modelValue,
+      modelValue === '*' ? newBrand.trim() : `${newBrand.trim()} ${modelValue}`
     );
 
     if (success) {
@@ -353,7 +355,7 @@ const Index = () => {
               <Input
                 value={newModel}
                 onChange={(e) => setNewModel(e.target.value)}
-                placeholder="Modelis (pvz. X5)"
+                placeholder="Modelis (neprivaloma)"
                 className="flex-1"
                 onKeyDown={(e) => e.key === 'Enter' && handleAddSearch()}
               />
@@ -377,7 +379,7 @@ const Index = () => {
                   >
                     <Car className="w-4 h-4 text-green-600" />
                     <span className="text-sm font-medium text-foreground">
-                      {car.brand} {car.model}
+                      {car.brand} {car.model === '*' ? '(visi modeliai)' : car.model}
                     </span>
                     <button
                       onClick={() => removeCar(car.external_id)}
