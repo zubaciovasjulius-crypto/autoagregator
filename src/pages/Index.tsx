@@ -3,8 +3,9 @@ import Header from '@/components/Header';
 import { CarListing } from '@/data/mockCars';
 import { scrapeApi, DbCarListing } from '@/lib/api/scrapeApi';
 import { useSavedCars } from '@/hooks/useSavedCars';
+import { useFoundListings } from '@/hooks/useFoundListings';
 import { useAuth } from '@/hooks/useAuth';
-import { Bell, Trash2, Car, LogIn, Plus, Loader2, Volume2, VolumeX } from 'lucide-react';
+import { Bell, Trash2, Car, LogIn, Plus, Loader2, Volume2, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
@@ -65,13 +66,21 @@ const playNotificationSound = () => {
 const Index = () => {
   const { user } = useAuth();
   const { savedCars, removeCar, saveCar, loading, fetchSavedCars } = useSavedCars();
+  const { 
+    foundListings, 
+    fetchFoundListings, 
+    addFoundListing, 
+    removeFoundListing, 
+    clearAllFoundListings,
+    toCarListing,
+    loading: foundLoading 
+  } = useFoundListings();
   
   // Form
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
   
-  // New listings tracking
-  const [newListings, setNewListings] = useState<CarListing[]>([]);
+  // Status
   const [isChecking, setIsChecking] = useState(false);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -81,9 +90,20 @@ const Index = () => {
   const knownListingsRef = useRef<Set<string>>(new Set());
   const isFirstCheckRef = useRef(true);
 
+  // Load saved cars and found listings on mount
   useEffect(() => {
     fetchSavedCars();
-  }, [fetchSavedCars]);
+    fetchFoundListings();
+  }, [fetchSavedCars, fetchFoundListings]);
+
+  // Initialize known listings from database
+  useEffect(() => {
+    if (foundListings.length > 0) {
+      foundListings.forEach(listing => {
+        knownListingsRef.current.add(listing.external_id);
+      });
+    }
+  }, [foundListings]);
 
   // Convert DB listing to CarListing format
   const convertDbToCarListing = useCallback((db: DbCarListing): CarListing => ({
@@ -104,24 +124,23 @@ const Index = () => {
     listingUrl: db.listing_url || db.source_url,
   }), []);
 
-  // Check all saved searches for new listings (uses cache - no rate limit)
+  // Check all saved searches for new listings
   const checkForNewListings = useCallback(async (forceRefresh: boolean = false) => {
     if (!user || savedCars.length === 0) return;
     
     setIsChecking(true);
     
     try {
+      let newCount = 0;
+      
       for (const search of savedCars) {
         console.log(`Checking ${search.brand} ${search.model}... (refresh: ${forceRefresh})`);
         
-        // Only force refresh on first check or manual refresh
         const result = await scrapeApi.searchCars(search.brand, search.model, forceRefresh && isFirstCheckRef.current);
         
         if (result.success && result.data) {
-          const foundNew: CarListing[] = [];
-          
           for (const listing of result.data) {
-            const listingId = listing.id || listing.external_id;
+            const listingId = listing.external_id || listing.id;
             
             // Skip if already known
             if (knownListingsRef.current.has(listingId)) continue;
@@ -129,32 +148,34 @@ const Index = () => {
             // Add to known
             knownListingsRef.current.add(listingId);
             
-            // If not first check, this is a NEW listing
+            // If not first check, this is a NEW listing - save to database
             if (!isFirstCheckRef.current) {
-              foundNew.push(convertDbToCarListing(listing));
+              const carListing = convertDbToCarListing(listing);
+              const saved = await addFoundListing(carListing);
+              if (saved) newCount++;
             }
-          }
-          
-          if (foundNew.length > 0) {
-            // Play sound
-            if (soundEnabled) {
-              playNotificationSound();
-            }
-            
-            // Show toast
-            toast({
-              title: `🚗 ${foundNew.length} nauji skelbimai!`,
-              description: `${search.brand} ${search.model}`,
-              duration: 10000,
-            });
-            
-            // Add to new listings (at the beginning)
-            setNewListings(prev => [...foundNew, ...prev]);
           }
         }
         
         // Delay between searches to avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      if (newCount > 0) {
+        // Play sound
+        if (soundEnabled) {
+          playNotificationSound();
+        }
+        
+        // Show toast
+        toast({
+          title: `🚗 ${newCount} nauji skelbimai!`,
+          description: 'Pridėti į sąrašą',
+          duration: 10000,
+        });
+        
+        // Refresh found listings from DB
+        fetchFoundListings();
       }
       
       isFirstCheckRef.current = false;
@@ -165,12 +186,12 @@ const Index = () => {
       setIsChecking(false);
       setCountdown(REFRESH_INTERVAL / 1000);
     }
-  }, [user, savedCars, convertDbToCarListing, soundEnabled]);
+  }, [user, savedCars, convertDbToCarListing, soundEnabled, addFoundListing, fetchFoundListings]);
 
   // Initial check when user logs in and has saved searches
   useEffect(() => {
     if (user && savedCars.length > 0 && isFirstCheckRef.current) {
-      checkForNewListings(true); // First check does a fresh scrape
+      checkForNewListings(true);
     }
   }, [user, savedCars, checkForNewListings]);
 
@@ -226,16 +247,24 @@ const Index = () => {
     if (success) {
       setNewBrand('');
       setNewModel('');
-      // Reset to check this new search
       isFirstCheckRef.current = true;
-      setTimeout(() => checkForNewListings(), 500);
+      setTimeout(() => checkForNewListings(true), 500);
     }
   };
 
-  // Clear new listings
-  const clearNewListings = () => {
-    setNewListings([]);
+  // Handle delete listing
+  const handleDeleteListing = async (id: string) => {
+    const success = await removeFoundListing(id);
+    if (success) {
+      toast({
+        title: 'Ištrinta',
+        description: 'Skelbimas pašalintas',
+      });
+    }
   };
+
+  // Get display listings
+  const displayListings = foundListings.map(toCarListing);
 
   return (
     <div className="min-h-screen bg-background">
@@ -368,29 +397,38 @@ const Index = () => {
         )}
       </section>
 
-      {/* New Listings Section */}
+      {/* Found Listings Section */}
       <section className="container mx-auto px-4 py-6 border-t border-border">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Car className="w-5 h-5" />
-            Nauji skelbimai ({newListings.length})
+            Rasti skelbimai ({displayListings.length})
           </h2>
-          {newListings.length > 0 && (
-            <Button variant="outline" size="sm" onClick={clearNewListings}>
-              Išvalyti
+          {displayListings.length > 0 && (
+            <Button variant="outline" size="sm" onClick={clearAllFoundListings}>
+              Išvalyti visus
             </Button>
           )}
         </div>
 
-        {isChecking && newListings.length === 0 ? (
+        {(isChecking || foundLoading) && displayListings.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
             <p className="text-muted-foreground">Ieškoma naujų skelbimų...</p>
           </div>
-        ) : newListings.length > 0 ? (
+        ) : displayListings.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {newListings.map((car, index) => (
-              <CarCard key={car.id} car={car} index={index} />
+            {displayListings.map((car, index) => (
+              <div key={car.id} className="relative group">
+                <CarCard car={car} index={index} />
+                <button
+                  onClick={() => handleDeleteListing(car.id)}
+                  className="absolute top-2 right-2 p-2 bg-destructive/90 hover:bg-destructive rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                  title="Ištrinti"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -402,7 +440,7 @@ const Index = () => {
             <p className="text-muted-foreground text-sm">
               {savedCars.length === 0 
                 ? 'Įveskite markę ir modelį, kad pradėtumėte stebėti' 
-                : 'Sistema automatiškai praneš, kai atsiras nauji skelbimai'}
+                : 'Sistema automatiškai praneš, kai atsiras nauji skelbimai. Skelbimai saugomi 3 dienas.'}
             </p>
           </div>
         )}
