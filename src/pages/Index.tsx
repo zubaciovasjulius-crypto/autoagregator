@@ -1,175 +1,19 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useEffect } from 'react';
 import Header from '@/components/Header';
-import CarCard from '@/components/CarCard';
-import { mockCars, carSources, CarListing } from '@/data/mockCars';
-import { scrapeApi, DbCarListing } from '@/lib/api/scrapeApi';
+import { carSources } from '@/data/mockCars';
 import { useSavedCars } from '@/hooks/useSavedCars';
-import { Search, Car, RefreshCw, Loader2, Bell } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAuth } from '@/hooks/useAuth';
+import { Bell, ExternalLink, Trash2, Car, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/hooks/use-toast';
-
-const REFRESH_INTERVAL = 5000; // 5 seconds
+import { Link } from 'react-router-dom';
 
 const Index = () => {
-  const [search, setSearch] = useState('');
-  const [selectedBrand, setSelectedBrand] = useState('all');
-  const [selectedCountry, setSelectedCountry] = useState('all');
-  const [priceRange, setPriceRange] = useState('all');
-  const [listings, setListings] = useState<CarListing[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
-  
-  const { savedCars, checkNewListings, initializeKnownListings } = useSavedCars();
-  const isFirstLoad = useRef(true);
+  const { user } = useAuth();
+  const { savedCars, removeCar, loading, fetchSavedCars } = useSavedCars();
 
-  // Convert DB listings to CarListing format
-  const convertDbToCarListing = useCallback((db: DbCarListing): CarListing => ({
-    id: db.id,
-    title: db.title,
-    brand: db.brand,
-    model: db.model,
-    year: db.year,
-    price: db.price,
-    mileage: db.mileage || 0,
-    fuel: db.fuel || 'Dyzelinas',
-    transmission: db.transmission || 'Automatinė',
-    location: db.location || '',
-    country: db.country,
-    source: db.source,
-    sourceUrl: db.source_url,
-    image: db.image || 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80',
-    listingUrl: db.listing_url || db.source_url,
-  }), []);
-
-  // Load listings
-  const loadListings = useCallback(async (silent = false) => {
-    if (!silent) setIsLoading(true);
-    
-    try {
-      const cachedListings = await scrapeApi.getListings();
-      
-      if (cachedListings.length > 0) {
-        const converted = cachedListings.map(convertDbToCarListing);
-        
-        // Check for new listings (only after first load)
-        if (!isFirstLoad.current) {
-          checkNewListings(cachedListings);
-        } else {
-          initializeKnownListings(cachedListings);
-          isFirstLoad.current = false;
-        }
-        
-        setListings(converted);
-        setLastUpdated(new Date());
-      } else if (listings.length === 0) {
-        // Fallback to mock data if DB is empty
-        setListings(mockCars);
-      }
-    } catch (error) {
-      console.error('Error loading listings:', error);
-      if (listings.length === 0) {
-        setListings(mockCars);
-      }
-    } finally {
-      setIsLoading(false);
-      setCountdown(REFRESH_INTERVAL / 1000);
-    }
-  }, [convertDbToCarListing, checkNewListings, initializeKnownListings, listings.length]);
-
-  // Initial load
   useEffect(() => {
-    loadListings();
-  }, []);
-
-  // Auto-refresh every 5 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadListings(true);
-    }, REFRESH_INTERVAL);
-
-    return () => clearInterval(interval);
-  }, [loadListings]);
-
-  // Countdown timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown(prev => (prev <= 1 ? REFRESH_INTERVAL / 1000 : prev - 1));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  const handleRefresh = useCallback(async () => {
-    if (isLoading) return;
-    
-    setIsLoading(true);
-    toast({
-      title: 'Atnaujinama...',
-      description: 'Renkame duomenis iš šaltinių',
-    });
-
-    try {
-      const newListings = await scrapeApi.scrapeAll(true);
-      if (newListings.length > 0) {
-        const converted = newListings.map(convertDbToCarListing);
-        checkNewListings(newListings);
-        setListings(converted);
-        setLastUpdated(new Date());
-        toast({
-          title: 'Atnaujinta!',
-          description: `Rasta ${newListings.length} skelbimų`,
-        });
-      } else {
-        await loadListings();
-        toast({
-          title: 'Duomenys atnaujinti',
-          description: 'Rodomi naujausi duomenys',
-        });
-      }
-    } catch (error) {
-      toast({
-        title: 'Klaida',
-        description: 'Nepavyko atnaujinti duomenų',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-      setCountdown(REFRESH_INTERVAL / 1000);
-    }
-  }, [isLoading, convertDbToCarListing, checkNewListings, loadListings]);
-
-  const brands = useMemo(() => {
-    const uniqueBrands = [...new Set(listings.map(car => car.brand))];
-    return uniqueBrands.sort();
-  }, [listings]);
-
-  const countries = useMemo(() => {
-    const uniqueCountries = [...new Set(listings.map(car => car.country))];
-    return uniqueCountries.sort();
-  }, [listings]);
-
-  const filteredCars = useMemo(() => {
-    return listings.filter((car) => {
-      const matchesSearch = search === '' || 
-        car.title.toLowerCase().includes(search.toLowerCase()) ||
-        car.brand.toLowerCase().includes(search.toLowerCase()) ||
-        car.model.toLowerCase().includes(search.toLowerCase());
-
-      const matchesBrand = selectedBrand === 'all' || car.brand === selectedBrand;
-      const matchesCountry = selectedCountry === 'all' || car.country === selectedCountry;
-      
-      let matchesPrice = true;
-      if (priceRange === 'under10k') matchesPrice = car.price < 10000;
-      else if (priceRange === '10k-20k') matchesPrice = car.price >= 10000 && car.price < 20000;
-      else if (priceRange === '20k-50k') matchesPrice = car.price >= 20000 && car.price < 50000;
-      else if (priceRange === 'over50k') matchesPrice = car.price >= 50000;
-
-      return matchesSearch && matchesBrand && matchesCountry && matchesPrice;
-    });
-  }, [search, selectedBrand, selectedCountry, priceRange, listings]);
+    fetchSavedCars();
+  }, [fetchSavedCars]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -183,153 +27,105 @@ const Index = () => {
               Automobilių paieška Europoje
             </h1>
             <p className="text-sm md:text-base text-muted-foreground">
-              {listings.length} skelbimai iš {carSources.length} šaltinių
+              {carSources.length} šaltiniai iš visos Europos
             </p>
-            <div className="flex items-center justify-center gap-3 mt-2">
-              {lastUpdated && (
-                <span className="text-xs text-muted-foreground">
-                  Atnaujinta: {lastUpdated.toLocaleTimeString('lt-LT')}
-                </span>
-              )}
-              <span className="text-xs text-primary font-medium flex items-center gap-1">
-                <RefreshCw className="w-3 h-3" />
-                {countdown}s
-              </span>
-              {savedCars.length > 0 && (
-                <span className="text-xs text-green-600 flex items-center gap-1">
-                  <Bell className="w-3 h-3" />
-                  {savedCars.length} stebima
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Search Bar */}
-          <div className="max-w-3xl mx-auto">
-            <div className="flex flex-col md:flex-row gap-2 bg-card p-3 rounded-xl shadow-lg border border-border">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Ieškoti markės, modelio..."
-                  className="pl-10 h-10"
-                />
-              </div>
-              <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                <SelectTrigger className="w-full md:w-36 h-10">
-                  <SelectValue placeholder="Markė" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Visos markės</SelectItem>
-                  {brands.map(brand => (
-                    <SelectItem key={brand} value={brand}>{brand}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                <SelectTrigger className="w-full md:w-36 h-10">
-                  <SelectValue placeholder="Šalis" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Visos šalys</SelectItem>
-                  {countries.map(country => (
-                    <SelectItem key={country} value={country}>{country}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button 
-                onClick={handleRefresh}
-                disabled={isLoading}
-                className="h-10 gap-2"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-                <span className="hidden sm:inline">Atnaujinti</span>
-              </Button>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* Source Pills */}
-      <section className="border-b border-border bg-muted/30">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {carSources.map((source) => (
-              <a
-                key={source.id}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-shrink-0 px-3 py-1.5 rounded-full bg-card hover:bg-primary/10 border border-border text-xs font-medium text-foreground transition-colors"
-              >
-                {source.name}
-              </a>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Filter Row */}
-      <section className="container mx-auto px-4 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">
-            {filteredCars.length} rezultatai
-          </span>
-          <Select value={priceRange} onValueChange={setPriceRange}>
-            <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue placeholder="Kaina" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Bet kokia kaina</SelectItem>
-              <SelectItem value="under10k">Iki 10 000 €</SelectItem>
-              <SelectItem value="10k-20k">10 000 - 20 000 €</SelectItem>
-              <SelectItem value="20k-50k">20 000 - 50 000 €</SelectItem>
-              <SelectItem value="over50k">Virš 50 000 €</SelectItem>
-            </SelectContent>
-          </Select>
-          {(selectedBrand !== 'all' || selectedCountry !== 'all' || priceRange !== 'all') && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => {
-                setSelectedBrand('all');
-                setSelectedCountry('all');
-                setPriceRange('all');
-                setSearch('');
-              }}
-              className="text-xs text-muted-foreground"
+      {/* Source Links */}
+      <section className="container mx-auto px-4 py-8">
+        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <ExternalLink className="w-5 h-5" />
+          Automobilių šaltiniai
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {carSources.map((source) => (
+            <a
+              key={source.id}
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 p-4 rounded-xl bg-card hover:bg-primary/10 border border-border transition-all hover:shadow-lg group"
             >
-              Išvalyti
-            </Button>
-          )}
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold">
+                {source.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1">
+                <h3 className="font-medium text-foreground group-hover:text-primary transition-colors">
+                  {source.name}
+                </h3>
+                <p className="text-xs text-muted-foreground">{source.country}</p>
+              </div>
+              <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+            </a>
+          ))}
         </div>
       </section>
 
-      {/* Cars Grid */}
-      <main className="container mx-auto px-4 pb-8">
-        {isLoading && listings.length === 0 ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      {/* Saved Searches Section */}
+      <section className="container mx-auto px-4 py-8 border-t border-border">
+        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Bell className="w-5 h-5" />
+          Išsaugotos paieškos
+        </h2>
+
+        {!user ? (
+          <div className="text-center py-12 bg-muted/30 rounded-xl border border-border">
+            <LogIn className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              Prisijunkite, kad matytumėte išsaugotas paieškas
+            </h3>
+            <p className="text-muted-foreground text-sm mb-4">
+              Išsaugokite automobilius ir gaukite pranešimus apie naujus skelbimus
+            </p>
+            <Link to="/auth">
+              <Button>Prisijungti</Button>
+            </Link>
           </div>
-        ) : filteredCars.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredCars.map((car, index) => (
-              <CarCard key={car.id} car={car} index={index} />
+        ) : loading ? (
+          <div className="text-center py-12">
+            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+          </div>
+        ) : savedCars.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {savedCars.map((car) => (
+              <div
+                key={car.id}
+                className="flex items-center justify-between p-4 rounded-xl bg-card border border-border"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                    <Car className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-foreground">{car.brand} {car.model}</h3>
+                    <p className="text-xs text-muted-foreground line-clamp-1">{car.title}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeCar(car.external_id)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             ))}
           </div>
         ) : (
-          <div className="text-center py-16">
-            <Car className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-            <h3 className="text-lg font-semibold text-foreground mb-2">Skelbimų nerasta</h3>
-            <p className="text-muted-foreground text-sm">Pabandykite pakeisti filtrus arba atnaujinti</p>
+          <div className="text-center py-12 bg-muted/30 rounded-xl border border-border">
+            <Car className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              Nėra išsaugotų paieškų
+            </h3>
+            <p className="text-muted-foreground text-sm">
+              Išsaugokite automobilius iš šaltinių, kad gautumėte pranešimus
+            </p>
           </div>
         )}
-      </main>
+      </section>
 
       {/* Footer */}
       <footer className="border-t border-border py-6 bg-muted/30">
