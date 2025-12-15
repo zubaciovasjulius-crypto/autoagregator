@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { CarListing } from '@/data/mockCars';
-import { MapPin, Fuel, Gauge, Calendar, ExternalLink, Heart } from 'lucide-react';
+import { MapPin, Fuel, Gauge, Calendar, ExternalLink, Heart, Download, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useSavedCars } from '@/hooks/useSavedCars';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface CarCardProps {
   car: CarListing;
@@ -13,6 +15,7 @@ interface CarCardProps {
 const CarCard = ({ car, index }: CarCardProps) => {
   const { user } = useAuth();
   const { isCarSaved, saveCar, removeCar } = useSavedCars();
+  const [isDownloading, setIsDownloading] = useState(false);
   
   const isSaved = isCarSaved(car.id);
 
@@ -41,6 +44,87 @@ const CarCard = ({ car, index }: CarCardProps) => {
       await removeCar(car.id);
     } else {
       await saveCar(car.id, car.brand, car.model, car.title);
+    }
+  };
+
+  const handleDownloadImages = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!car.listingUrl) {
+      toast({
+        title: 'Klaida',
+        description: 'Nėra skelbimo nuorodos',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsDownloading(true);
+    
+    try {
+      toast({
+        title: '📷 Ieškoma nuotraukų...',
+        description: 'Palaukite, kraunamos nuotraukos',
+      });
+
+      const { data, error } = await supabase.functions.invoke('download-listing-images', {
+        body: { listingUrl: car.listingUrl },
+      });
+
+      if (error) throw error;
+
+      if (!data.success || !data.images || data.images.length === 0) {
+        toast({
+          title: 'Nerasta',
+          description: 'Nepavyko rasti nuotraukų šiame skelbime',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: `📷 Rasta ${data.images.length} nuotraukų`,
+        description: 'Pradedamas atsisiuntimas...',
+      });
+
+      // Download each image
+      for (let i = 0; i < data.images.length; i++) {
+        const imageUrl = data.images[i];
+        try {
+          const response = await fetch(imageUrl);
+          const blob = await response.blob();
+          
+          // Create download link
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${car.brand}_${car.model}_${car.year}_${i + 1}.jpg`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          
+          // Small delay between downloads
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (imgError) {
+          console.error(`Failed to download image ${i + 1}:`, imgError);
+        }
+      }
+
+      toast({
+        title: '✅ Atsisiųsta!',
+        description: `${data.images.length} nuotraukos išsaugotos`,
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        title: 'Klaida',
+        description: 'Nepavyko atsisiųsti nuotraukų',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -83,6 +167,19 @@ const CarCard = ({ car, index }: CarCardProps) => {
           )}
         >
           <Heart className={cn("w-4 h-4", isSaved && "fill-current")} />
+        </button>
+        {/* Download Images Button */}
+        <button
+          onClick={handleDownloadImages}
+          disabled={isDownloading}
+          className="absolute top-2 right-12 p-2 rounded-full backdrop-blur bg-background/90 text-muted-foreground hover:text-primary hover:bg-background transition-all disabled:opacity-50"
+          title="Atsisiųsti visas nuotraukas"
+        >
+          {isDownloading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
         </button>
         {/* Price Badge */}
         <div className="absolute bottom-2 right-2">
