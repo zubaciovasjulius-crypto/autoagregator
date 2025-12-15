@@ -149,31 +149,32 @@ const CarCard = ({ car, index }: CarCardProps) => {
             {car.source}
           </span>
         </div>
-        {/* Save Button */}
-        <button
-          onClick={handleSaveToggle}
-          className={cn(
-            "absolute top-2 right-2 p-2 rounded-full backdrop-blur transition-all",
-            isSaved 
-              ? "bg-primary text-primary-foreground" 
-              : "bg-background/90 text-muted-foreground hover:text-primary hover:bg-background"
-          )}
-        >
-          <Heart className={cn("w-4 h-4", isSaved && "fill-current")} />
-        </button>
-        {/* Download Images Button */}
-        <button
-          onClick={handleDownloadImages}
-          disabled={isDownloading}
-          className="absolute top-2 right-12 p-2 rounded-full backdrop-blur bg-background/90 text-muted-foreground hover:text-primary hover:bg-background transition-all disabled:opacity-50"
-          title="Atsisiųsti visas nuotraukas"
-        >
-          {isDownloading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
-        </button>
+        {/* Action Buttons - stacked vertically for better mobile touch targets */}
+        <div className="absolute top-2 right-2 flex flex-col gap-1.5">
+          <button
+            onClick={handleSaveToggle}
+            className={cn(
+              "p-2.5 rounded-full backdrop-blur transition-all touch-manipulation",
+              isSaved 
+                ? "bg-primary text-primary-foreground" 
+                : "bg-background/90 text-muted-foreground active:text-primary active:bg-background"
+            )}
+          >
+            <Heart className={cn("w-5 h-5", isSaved && "fill-current")} />
+          </button>
+          <button
+            onClick={handleDownloadImages}
+            disabled={isDownloading}
+            className="p-2.5 rounded-full backdrop-blur bg-background/90 text-muted-foreground active:text-primary active:bg-background transition-all disabled:opacity-50 touch-manipulation"
+            title="Atsisiųsti visas nuotraukas"
+          >
+            {isDownloading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Download className="w-5 h-5" />
+            )}
+          </button>
+        </div>
         {/* Price Badge */}
         <div className="absolute bottom-2 right-2">
           <span className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-bold shadow-lg">
