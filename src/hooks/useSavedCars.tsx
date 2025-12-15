@@ -10,6 +10,8 @@ interface SavedCar {
   model: string;
   title: string;
   min_year?: number | null;
+  max_year?: number | null;
+  min_price?: number | null;
   max_price?: number | null;
 }
 
@@ -87,6 +89,8 @@ export const useSavedCars = () => {
     model: string, 
     title: string,
     minYear?: number | null,
+    maxYear?: number | null,
+    minPrice?: number | null,
     maxPrice?: number | null
   ) => {
     if (!user) return false;
@@ -101,6 +105,8 @@ export const useSavedCars = () => {
           model,
           title,
           min_year: minYear || null,
+          max_year: maxYear || null,
+          min_price: minPrice || null,
           max_price: maxPrice || null,
         });
 
@@ -109,8 +115,12 @@ export const useSavedCars = () => {
       await fetchSavedCars();
       
       let description = `Stebimi: ${brand} ${model === '*' ? '(visi modeliai)' : model}`;
-      if (minYear) description += `, nuo ${minYear} m.`;
-      if (maxPrice) description += `, iki ${maxPrice.toLocaleString('lt-LT')} €`;
+      if (minYear) description += `, nuo ${minYear}`;
+      if (maxYear) description += ` iki ${maxYear} m.`;
+      else if (minYear) description += ' m.';
+      if (minPrice) description += `, nuo ${minPrice.toLocaleString('lt-LT')}`;
+      if (maxPrice) description += ` iki ${maxPrice.toLocaleString('lt-LT')} €`;
+      else if (minPrice) description += ' €';
       
       toast({
         title: '💾 Išsaugota!',

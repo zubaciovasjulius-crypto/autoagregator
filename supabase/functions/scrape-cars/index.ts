@@ -203,10 +203,36 @@ function parseTheParkingListings(scrapeData: any, brand: string, model: string):
   
   console.log(`TheParking: Found ${detailLinks.length} detail links`);
   
-  // Extract images from HTML
-  const imageRegex = /https:\/\/(?:cloud\.leparking\.fr|scalethumb\.leparking\.fr)[^"'\s)]+\.(?:jpg|jpeg|png|webp)/gi;
-  const imageMatches = html.match(imageRegex) || [];
-  const allImages: string[] = [...new Set(imageMatches)] as string[];
+  // Extract images from HTML with multiple patterns for TheParking
+  const imagePatterns = [
+    /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/scalethumb\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s)>]*leparking[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s)>]*theparking[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
+    /src=["']([^"']+\.(?:jpg|jpeg|png|webp))[^"']*["']/gi,
+  ];
+  
+  let allImageMatches: string[] = [];
+  for (const pattern of imagePatterns) {
+    const matches = html.match(pattern) || [];
+    allImageMatches.push(...matches);
+  }
+  
+  // Also extract from img src attributes
+  const imgSrcRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+  let imgMatch;
+  while ((imgMatch = imgSrcRegex.exec(html)) !== null) {
+    if (imgMatch[1] && (imgMatch[1].includes('jpg') || imgMatch[1].includes('jpeg') || imgMatch[1].includes('png') || imgMatch[1].includes('webp'))) {
+      allImageMatches.push(imgMatch[1]);
+    }
+  }
+  
+  // Filter and dedupe images
+  const allImages: string[] = [...new Set(allImageMatches)]
+    .filter(img => !img.includes('logo') && !img.includes('icon') && !img.includes('flag') && img.length > 20)
+    .map(img => img.startsWith('//') ? `https:${img}` : img);
+  
+  console.log(`TheParking: Found ${allImages.length} images`);
   
   // Parse price, year, mileage patterns from markdown
   const pricePattern = /(\d{1,3}[,.]?\d{3})\s*€/g;
@@ -301,11 +327,35 @@ function parseSchadeautosListings(scrapeData: any, brand: string, model: string)
   
   console.log(`Schadeautos: Found ${detailLinks.length} detail links`);
   
-  // Extract images
-  const imageRegex = /https:\/\/[^"'\s)]+schadeautos[^"'\s)]*\.(?:jpg|jpeg|png|webp)/gi;
-  const cdnImageRegex = /https:\/\/[^"'\s)]+(?:cdn|img|images)[^"'\s)]*\.(?:jpg|jpeg|png|webp)/gi;
-  const imageMatches = [...(html.match(imageRegex) || []), ...(html.match(cdnImageRegex) || [])];
-  const allImages: string[] = [...new Set(imageMatches)] as string[];
+  // Extract images with multiple patterns
+  const imagePatterns = [
+    /https:\/\/[^"'\s)>]*schadeautos[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s)>]*cdn[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s)>]*cloudinary[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s)>]*imgix[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
+  ];
+  
+  let allImageMatches: string[] = [];
+  for (const pattern of imagePatterns) {
+    const matches = html.match(pattern) || [];
+    allImageMatches.push(...matches);
+  }
+  
+  // Also extract from img src attributes
+  const imgSrcRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+  let imgMatch;
+  while ((imgMatch = imgSrcRegex.exec(html)) !== null) {
+    if (imgMatch[1] && (imgMatch[1].includes('jpg') || imgMatch[1].includes('jpeg') || imgMatch[1].includes('png') || imgMatch[1].includes('webp'))) {
+      allImageMatches.push(imgMatch[1]);
+    }
+  }
+  
+  // Filter and dedupe images
+  const allImages: string[] = [...new Set(allImageMatches)]
+    .filter(img => !img.includes('logo') && !img.includes('icon') && !img.includes('flag') && !img.includes('avatar') && img.length > 20)
+    .map(img => img.startsWith('//') ? `https:${img}` : img);
+  
+  console.log(`Schadeautos: Found ${allImages.length} images`);
   
   // Parse prices (€ format)
   const pricePattern = /€\s*(\d{1,3}[.,]?\d{0,3}[.,]?\d{0,3})/g;
