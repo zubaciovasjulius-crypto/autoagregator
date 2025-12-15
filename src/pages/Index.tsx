@@ -386,11 +386,11 @@ const Index = () => {
                   className="flex-1"
                 />
               </div>
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <select
                   value={minYear}
                   onChange={(e) => setMinYear(e.target.value)}
-                  className="flex-1 h-10 px-3 rounded-md border border-input bg-background text-sm"
+                  className="h-12 px-3 rounded-md border border-input bg-background text-sm touch-manipulation"
                 >
                   <option value="">Metai nuo</option>
                   {yearOptions.map(year => (
@@ -400,7 +400,7 @@ const Index = () => {
                 <select
                   value={maxYear}
                   onChange={(e) => setMaxYear(e.target.value)}
-                  className="flex-1 h-10 px-3 rounded-md border border-input bg-background text-sm"
+                  className="h-12 px-3 rounded-md border border-input bg-background text-sm touch-manipulation"
                 >
                   <option value="">Metai iki</option>
                   {yearOptions.map(year => (
@@ -408,13 +408,13 @@ const Index = () => {
                   ))}
                 </select>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="number"
                   value={minPrice}
                   onChange={(e) => setMinPrice(e.target.value)}
                   placeholder="Kaina nuo €"
-                  className="flex-1"
+                  className="h-12 touch-manipulation"
                   min="0"
                 />
                 <Input
@@ -422,14 +422,14 @@ const Index = () => {
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(e.target.value)}
                   placeholder="Kaina iki €"
-                  className="flex-1"
+                  className="h-12 touch-manipulation"
                   min="0"
                 />
-                <Button onClick={handleAddSearch} className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Stebėti
-                </Button>
               </div>
+              <Button onClick={handleAddSearch} className="w-full h-12 gap-2 text-base touch-manipulation">
+                <Plus className="w-5 h-5" />
+                Stebėti
+              </Button>
             </div>
 
             {/* Saved searches list */}
