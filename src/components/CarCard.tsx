@@ -85,42 +85,35 @@ const CarCard = ({ car, index }: CarCardProps) => {
 
       toast({
         title: `📷 Rasta ${data.images.length} nuotraukų`,
-        description: 'Pradedamas atsisiuntimas...',
+        description: 'Atidaromos nuotraukos naujuose languose...',
       });
 
-      // Download each image
-      for (let i = 0; i < data.images.length; i++) {
+      // Open each image in a new tab (user can right-click to save)
+      for (let i = 0; i < Math.min(data.images.length, 10); i++) {
         const imageUrl = data.images[i];
-        try {
-          const response = await fetch(imageUrl);
-          const blob = await response.blob();
-          
-          // Create download link
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${car.brand}_${car.model}_${car.year}_${i + 1}.jpg`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          window.URL.revokeObjectURL(url);
-          
-          // Small delay between downloads
-          await new Promise(resolve => setTimeout(resolve, 300));
-        } catch (imgError) {
-          console.error(`Failed to download image ${i + 1}:`, imgError);
-        }
+        window.open(imageUrl, '_blank');
+        // Small delay between opening tabs
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      toast({
-        title: '✅ Atsisiųsta!',
-        description: `${data.images.length} nuotraukos išsaugotos`,
-      });
+      if (data.images.length > 10) {
+        toast({
+          title: `ℹ️ Rodoma 10 iš ${data.images.length}`,
+          description: 'Dešiniu pelės mygtuku - "Išsaugoti paveikslėlį"',
+          duration: 10000,
+        });
+      } else {
+        toast({
+          title: '✅ Nuotraukos atidarytos!',
+          description: 'Dešiniu pelės mygtuku - "Išsaugoti paveikslėlį"',
+          duration: 10000,
+        });
+      }
     } catch (error) {
       console.error('Download error:', error);
       toast({
         title: 'Klaida',
-        description: 'Nepavyko atsisiųsti nuotraukų',
+        description: 'Nepavyko gauti nuotraukų',
         variant: 'destructive',
       });
     } finally {
