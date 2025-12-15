@@ -40,86 +40,104 @@ Deno.serve(async (req) => {
     const html = await response.text();
     console.log(`Fetched ${html.length} bytes of HTML`);
 
-    // Extract all car images from HTML
+    // Extract all images
     const images: string[] = [];
 
-    // TheParking image patterns (high quality)
-    const imagePatterns = [
-      /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
-      /https:\/\/scalethumb\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
-      /https:\/\/[^"'\s)>]*leparking[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-      /https:\/\/[^"'\s)>]*schadeautos[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-      /https:\/\/[^"'\s)>]*cloudinary[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-    ];
+    // High-quality cloud.leparking URLs (prefer these)
+    const cloudLeparkingRegex = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>\]]+\.(?:jpg|jpeg|png|webp)/gi;
+    const cloudMatches = html.match(cloudLeparkingRegex) || [];
+    images.push(...cloudMatches);
 
-    // Apply patterns
-    for (const pattern of imagePatterns) {
+    // Also get from scalethumb and extract original URLs
+    const scalethumbRegex = /https:\/\/scalethumb\.leparking\.fr\/unsafe\/\d+x\d+\/smart\/(https[^"'\s)>\]]+)/gi;
+    let match;
+    while ((match = scalethumbRegex.exec(html)) !== null) {
+      if (match[1]) {
+        try {
+          const decoded = decodeURIComponent(match[1]);
+          if (decoded.includes('cloud.leparking.fr')) {
+            images.push(decoded);
+          }
+        } catch (e) {
+          // ignore decode errors
+        }
+      }
+    }
+
+    // Schadeautos patterns
+    const schadeautosPatterns = [
+      /https:\/\/[^"'\s)>\]]*schadeautos[^"'\s)>\]]*\.(?:jpg|jpeg|png|webp)/gi,
+      /https:\/\/res\.cloudinary\.com\/[^"'\s)>\]]+\.(?:jpg|jpeg|png|webp)/gi,
+    ];
+    
+    for (const pattern of schadeautosPatterns) {
       const matches = html.match(pattern) || [];
       images.push(...matches);
     }
 
-    // Extract from img src attributes
-    const imgSrcRegex = /<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-    const dataSrcRegex = /data-src=["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-    const dataLargeSrcRegex = /data-large(?:-src)?=["']([^"']+)["']/gi;
-    const dataOriginalRegex = /data-original=["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-    const backgroundRegex = /background(?:-image)?:\s*url\(['"]?([^"')]+\.(?:jpg|jpeg|png|webp)[^"')]*)/gi;
+    // Extract from data attributes (often contain high-res versions)
+    const dataLargeRegex = /data-(?:large|full|original|zoom|hires|highres|big)(?:-src)?=["']([^"']+)["']/gi;
+    while ((match = dataLargeRegex.exec(html)) !== null) {
+      if (match[1] && (match[1].includes('.jpg') || match[1].includes('.jpeg') || match[1].includes('.png') || match[1].includes('.webp'))) {
+        let url = match[1];
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (url.startsWith('http')) images.push(url);
+      }
+    }
 
-    let match;
-    while ((match = imgSrcRegex.exec(html)) !== null) {
-      if (match[1]) images.push(match[1]);
-    }
-    while ((match = dataSrcRegex.exec(html)) !== null) {
-      if (match[1]) images.push(match[1]);
-    }
-    while ((match = dataLargeSrcRegex.exec(html)) !== null) {
-      if (match[1]) images.push(match[1]);
-    }
-    while ((match = dataOriginalRegex.exec(html)) !== null) {
-      if (match[1]) images.push(match[1]);
-    }
-    while ((match = backgroundRegex.exec(html)) !== null) {
+    // Extract from gallery/slider JavaScript data
+    const jsonImageRegex = /"(?:url|src|image|photo|img)":\s*"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
+    while ((match = jsonImageRegex.exec(html)) !== null) {
       if (match[1]) images.push(match[1]);
     }
 
-    // Filter and dedupe
+    // Filter and dedupe - prefer high resolution
     const uniqueImages = [...new Set(images)]
       .filter(img => {
         const lower = img.toLowerCase();
-        return !lower.includes('logo') && 
-               !lower.includes('icon') && 
-               !lower.includes('flag') && 
-               !lower.includes('avatar') &&
-               !lower.includes('placeholder') &&
-               !lower.includes('blank') &&
-               !lower.includes('spinner') &&
-               !lower.includes('loading') &&
-               img.length > 30;
+        // Filter out non-car images
+        if (lower.includes('logo')) return false;
+        if (lower.includes('icon')) return false;
+        if (lower.includes('flag')) return false;
+        if (lower.includes('avatar')) return false;
+        if (lower.includes('placeholder')) return false;
+        if (lower.includes('blank')) return false;
+        if (lower.includes('spinner')) return false;
+        if (lower.includes('loading')) return false;
+        if (lower.includes('banner')) return false;
+        if (lower.includes('ad-')) return false;
+        if (lower.includes('/ads/')) return false;
+        if (img.length < 40) return false;
+        return true;
       })
       .map(img => {
+        // Clean up URL
         if (img.startsWith('//')) return `https:${img}`;
-        return img;
+        // Remove any trailing parameters that might reduce quality
+        return img.split('?')[0];
+      })
+      // Prefer cloud.leparking.fr (full resolution)
+      .sort((a, b) => {
+        const aIsCloud = a.includes('cloud.leparking.fr') ? 0 : 1;
+        const bIsCloud = b.includes('cloud.leparking.fr') ? 0 : 1;
+        return aIsCloud - bIsCloud;
       });
 
-    // Extract original URLs from scalethumb URLs (get full resolution)
-    const finalImages: string[] = [];
+    // Final dedupe and limit
+    const seen = new Set<string>();
+    const result: string[] = [];
+    
     for (const img of uniqueImages) {
-      if (img.includes('scalethumb') && img.includes('/smart/')) {
-        const originalMatch = img.match(/\/smart\/(https?.+)$/);
-        if (originalMatch && originalMatch[1]) {
-          finalImages.push(decodeURIComponent(originalMatch[1]));
-          continue;
-        }
+      // Create a simplified key for deduplication (remove size variations)
+      const key = img.replace(/\/\d+x\d+\//g, '/').replace(/_\d+x\d+/g, '');
+      if (!seen.has(key) && img.startsWith('http')) {
+        seen.add(key);
+        result.push(img);
       }
-      finalImages.push(img);
+      if (result.length >= 30) break;
     }
 
-    // Dedupe and filter only http(s) URLs
-    const result = [...new Set(finalImages)]
-      .filter(img => img.startsWith('http'))
-      .slice(0, 50);
-
-    console.log(`Found ${result.length} images`);
+    console.log(`Found ${result.length} unique high-quality images`);
 
     return new Response(
       JSON.stringify({ 
