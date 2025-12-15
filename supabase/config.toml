@@ -1,1 +1,7 @@
 project_id = "gfirdlgucifvpffovlcs"
+
+[functions.scrape-cars]
+verify_jwt = false
+
+[functions.download-listing-images]
+verify_jwt = false
