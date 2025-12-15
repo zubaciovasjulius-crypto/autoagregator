@@ -80,7 +80,13 @@ const Index = () => {
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
   const [minYear, setMinYear] = useState('');
+  const [maxYear, setMaxYear] = useState('');
+  const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
+  
+  // Generate year options (current year down to 2000)
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: currentYear - 1999 }, (_, i) => currentYear - i);
   
   // Status
   const [isChecking, setIsChecking] = useState(false);
@@ -149,6 +155,8 @@ const Index = () => {
             
             // Apply year/price filters from saved search
             if (search.min_year && listing.year < search.min_year) continue;
+            if (search.max_year && listing.year > search.max_year) continue;
+            if (search.min_price && listing.price < search.min_price) continue;
             if (search.max_price && listing.price > search.max_price) continue;
             
             // Add to known
@@ -244,22 +252,28 @@ const Index = () => {
     }
 
     const modelValue = newModel.trim() || '*'; // Use * for "all models"
-    const yearValue = minYear ? parseInt(minYear) : null;
-    const priceValue = maxPrice ? parseInt(maxPrice) : null;
+    const minYearValue = minYear ? parseInt(minYear) : null;
+    const maxYearValue = maxYear ? parseInt(maxYear) : null;
+    const minPriceValue = minPrice ? parseInt(minPrice) : null;
+    const maxPriceValue = maxPrice ? parseInt(maxPrice) : null;
 
     const success = await saveCar(
       `search-${newBrand}-${modelValue}-${Date.now()}`,
       newBrand.trim(),
       modelValue,
       modelValue === '*' ? newBrand.trim() : `${newBrand.trim()} ${modelValue}`,
-      yearValue,
-      priceValue
+      minYearValue,
+      maxYearValue,
+      minPriceValue,
+      maxPriceValue
     );
 
     if (success) {
       setNewBrand('');
       setNewModel('');
       setMinYear('');
+      setMaxYear('');
+      setMinPrice('');
       setMaxPrice('');
       isFirstCheckRef.current = true;
       setTimeout(() => checkForNewListings(true), 500);
@@ -373,20 +387,41 @@ const Index = () => {
                 />
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  type="number"
+                <select
                   value={minYear}
                   onChange={(e) => setMinYear(e.target.value)}
-                  placeholder="Min. metai (pvz. 2015)"
+                  className="flex-1 h-10 px-3 rounded-md border border-input bg-background text-sm"
+                >
+                  <option value="">Metai nuo</option>
+                  {yearOptions.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <select
+                  value={maxYear}
+                  onChange={(e) => setMaxYear(e.target.value)}
+                  className="flex-1 h-10 px-3 rounded-md border border-input bg-background text-sm"
+                >
+                  <option value="">Metai iki</option>
+                  {yearOptions.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  type="number"
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                  placeholder="Kaina nuo €"
                   className="flex-1"
-                  min="2000"
-                  max="2025"
+                  min="0"
                 />
                 <Input
                   type="number"
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(e.target.value)}
-                  placeholder="Max. kaina € (pvz. 30000)"
+                  placeholder="Kaina iki €"
                   className="flex-1"
                   min="0"
                 />
@@ -412,8 +447,16 @@ const Index = () => {
                     <Car className="w-4 h-4 text-green-600" />
                     <span className="text-sm font-medium text-foreground">
                       {car.brand} {car.model === '*' ? '(visi)' : car.model}
-                      {car.min_year && <span className="text-muted-foreground"> nuo {car.min_year}</span>}
-                      {car.max_price && <span className="text-muted-foreground"> iki {car.max_price.toLocaleString('lt-LT')}€</span>}
+                      {(car.min_year || car.max_year) && (
+                        <span className="text-muted-foreground">
+                          {' '}{car.min_year || '?'}-{car.max_year || '?'} m.
+                        </span>
+                      )}
+                      {(car.min_price || car.max_price) && (
+                        <span className="text-muted-foreground">
+                          {' '}{car.min_price?.toLocaleString('lt-LT') || '?'}-{car.max_price?.toLocaleString('lt-LT') || '?'}€
+                        </span>
+                      )}
                     </span>
                     <button
                       onClick={() => removeCar(car.external_id)}

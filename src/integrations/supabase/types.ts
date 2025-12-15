@@ -174,6 +174,8 @@ export type Database = {
           external_id: string
           id: string
           max_price: number | null
+          max_year: number | null
+          min_price: number | null
           min_year: number | null
           model: string
           title: string
@@ -185,6 +187,8 @@ export type Database = {
           external_id: string
           id?: string
           max_price?: number | null
+          max_year?: number | null
+          min_price?: number | null
           min_year?: number | null
           model: string
           title: string
@@ -196,6 +200,8 @@ export type Database = {
           external_id?: string
           id?: string
           max_price?: number | null
+          max_year?: number | null
+          min_price?: number | null
           min_year?: number | null
           model?: string
           title?: string
