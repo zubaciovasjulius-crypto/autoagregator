@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.download-listing-images]
 verify_jwt = false
+
+[functions.save-listing-image]
+verify_jwt = false

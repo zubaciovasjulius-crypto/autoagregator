@@ -140,6 +140,7 @@ const Index = () => {
     
     try {
       let newCount = 0;
+      const newListingsToSaveImages: { id: string; imageUrl: string; externalId: string }[] = [];
       
       for (const search of savedCars) {
         console.log(`Checking ${search.brand} ${search.model}... (refresh: ${forceRefresh})`);
@@ -166,13 +167,44 @@ const Index = () => {
             if (!isFirstCheckRef.current) {
               const carListing = convertDbToCarListing(listing);
               const saved = await addFoundListing(carListing);
-              if (saved) newCount++;
+              if (saved && listing.image) {
+                // Queue image for saving to storage
+                newListingsToSaveImages.push({
+                  id: saved.id,
+                  imageUrl: listing.image,
+                  externalId: listing.external_id,
+                });
+                newCount++;
+              } else if (saved) {
+                newCount++;
+              }
             }
           }
         }
         
         // Delay between searches to avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      // Save images in background for new listings
+      if (newListingsToSaveImages.length > 0) {
+        console.log(`Saving ${newListingsToSaveImages.length} images to storage...`);
+        
+        // Process images in background (don't await all)
+        for (const item of newListingsToSaveImages) {
+          scrapeApi.saveListingImage(item.imageUrl, item.id, item.externalId)
+            .then(result => {
+              if (result.success) {
+                console.log(`✓ Image saved: ${result.publicUrl}`);
+              } else {
+                console.warn(`✗ Failed to save image: ${result.error}`);
+              }
+            })
+            .catch(err => console.error('Image save error:', err));
+          
+          // Small delay between image saves
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
       
       if (newCount > 0) {
@@ -184,7 +216,7 @@ const Index = () => {
         // Show toast
         toast({
           title: `🚗 ${newCount} nauji skelbimai!`,
-          description: 'Pridėti į sąrašą',
+          description: `Pridėti į sąrašą${newListingsToSaveImages.length > 0 ? '. Nuotraukos išsaugomos...' : ''}`,
           duration: 10000,
         });
         
