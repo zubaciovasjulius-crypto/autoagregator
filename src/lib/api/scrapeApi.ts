@@ -73,4 +73,25 @@ export const scrapeApi = {
 
     return (data || []) as DbCarListing[];
   },
+
+  // Save image to storage and update listing
+  async saveListingImage(imageUrl: string, listingId: string, externalId: string): Promise<{ success: boolean; publicUrl?: string; error?: string }> {
+    try {
+      console.log(`Saving image for listing ${listingId}...`);
+      
+      const { data, error } = await supabase.functions.invoke('save-listing-image', {
+        body: { imageUrl, listingId, externalId },
+      });
+
+      if (error) {
+        console.error('Save image error:', error);
+        return { success: false, error: error.message };
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Save image error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
 };

@@ -57,12 +57,12 @@ export const useFoundListings = () => {
     }
   }, [user]);
 
-  // Add a new found listing
-  const addFoundListing = useCallback(async (listing: CarListing): Promise<boolean> => {
-    if (!user) return false;
+  // Add a new found listing - returns the saved listing or null
+  const addFoundListing = useCallback(async (listing: CarListing): Promise<FoundListing | null> => {
+    if (!user) return null;
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('found_listings')
         .upsert({
           user_id: user.id,
@@ -85,17 +85,19 @@ export const useFoundListings = () => {
         }, {
           onConflict: 'user_id,external_id',
           ignoreDuplicates: true,
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
         console.error('Error adding found listing:', error);
-        return false;
+        return null;
       }
 
-      return true;
+      return data as FoundListing;
     } catch (error) {
       console.error('Error adding found listing:', error);
-      return false;
+      return null;
     }
   }, [user]);
 
