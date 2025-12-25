@@ -30,11 +30,8 @@ function extractBrandFromTitle(title: string): { brand: string; model: string } 
   
   for (const brand of CAR_BRANDS) {
     if (upperTitle.includes(brand)) {
-      // Find where the brand is and extract model after it
       const brandIndex = upperTitle.indexOf(brand);
       const afterBrand = title.substring(brandIndex + brand.length).trim();
-      
-      // Extract model - usually the next word(s) before numbers or special chars
       const modelMatch = afterBrand.match(/^[\s-]*([A-Za-z0-9][\w\s-]{0,20}?)(?:\s+\d|\s+-|$)/i);
       const model = modelMatch ? modelMatch[1].trim() : afterBrand.split(/\s+/)[0];
       
@@ -45,7 +42,6 @@ function extractBrandFromTitle(title: string): { brand: string; model: string } 
     }
   }
   
-  // Fallback: first word might be brand
   const words = title.split(/[\s-]+/);
   if (words.length > 0) {
     return {
@@ -60,7 +56,6 @@ function extractBrandFromTitle(title: string): { brand: string; model: string } 
 function extractDetailsFromHtml(html: string, url: string): ScrapedData['details'] {
   const details: ScrapedData['details'] = {};
   
-  // Try to extract title from various sources
   const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
   const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   const h1Tag = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
@@ -68,7 +63,6 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
   details.title = ogTitle?.[1] || h1Tag?.[1] || titleTag?.[1] || '';
   details.title = details.title.trim();
   
-  // Extract brand and model from title
   if (details.title) {
     const brandModel = extractBrandFromTitle(details.title);
     if (brandModel) {
@@ -77,7 +71,6 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
     }
   }
   
-  // Extract year - look for 4-digit year pattern
   const yearPatterns = [
     /["']?year["']?\s*[:=]\s*["']?(\d{4})["']?/i,
     /(\d{4})\s*(?:m\.|metai|jaar|year|bj)/i,
@@ -92,7 +85,6 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
     }
   }
   
-  // Extract mileage
   const mileagePatterns = [
     /["']?(?:mileage|km|rida|kilometerstand)["']?\s*[:=]\s*["']?([\d.,]+)["']?/i,
     /([\d.,]{2,6})\s*km\b/i,
@@ -106,7 +98,6 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
     }
   }
   
-  // Extract price
   const pricePatterns = [
     /["']?price["']?\s*[:=]\s*["']?([\d.,]+)["']?/i,
     /€\s*([\d.,]+)/i,
@@ -128,60 +119,80 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
   return details;
 }
 
+async function getSchadeautosImages(listingId: string, html: string): Promise<string[]> {
+  const images: string[] = [];
+  
+  // Extract the main image hash pattern from the page
+  const mainImgMatch = html.match(/\/cache\/picture\/\d+\/(\d+)\/([a-f0-9~v]+\.jpg)/i);
+  
+  if (mainImgMatch) {
+    const id = mainImgMatch[1];
+    const hash = mainImgMatch[2];
+    
+    // Get the base hash (without version suffix)
+    const baseHash = hash.split('~')[0];
+    
+    // Add the main image in different sizes
+    images.push(`https://www.schadeautos.nl/cache/picture/1200/${id}/${hash}`);
+    images.push(`https://www.schadeautos.nl/cache/picture/707/${id}/${hash}`);
+  }
+  
+  // Extract ALL image URLs from HTML with various patterns
+  const patterns = [
+    // Direct image URLs in HTML
+    /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[a-f0-9~v\.]+\.jpg/gi,
+    // In srcset
+    /srcset="([^"]+schadeautos\.nl[^"]+)"/gi,
+    // In data attributes
+    /data-(?:src|image|large|zoom|original)="([^"]+schadeautos\.nl[^"]+\.jpg)"/gi,
+    // In JSON/JavaScript
+    /"(https?:\\?\/\\?\/[^"]*schadeautos\.nl[^"]*\.jpg)"/gi,
+    // Background images
+    /url\(['"]?(https:\/\/www\.schadeautos\.nl[^'")\s]+\.jpg)['"]?\)/gi,
+  ];
+  
+  for (const pattern of patterns) {
+    let match;
+    const regex = new RegExp(pattern.source, pattern.flags);
+    while ((match = regex.exec(html)) !== null) {
+      let url = match[1] || match[0];
+      // Unescape if needed
+      url = url.replace(/\\\//g, '/');
+      if (url.includes('schadeautos.nl') && url.includes('.jpg')) {
+        images.push(url);
+      }
+    }
+  }
+  
+  // Try to find more images by modifying the hash slightly (common pattern)
+  // Schadeautos often uses sequential image hashes
+  if (mainImgMatch) {
+    const id = mainImgMatch[1];
+    
+    // Look for all unique hashes in the HTML
+    const hashPattern = new RegExp(`/cache/picture/\\d+/${id}/([a-f0-9]+)(?:~v\\d+)?\\.jpg`, 'gi');
+    const foundHashes = new Set<string>();
+    let hashMatch;
+    while ((hashMatch = hashPattern.exec(html)) !== null) {
+      foundHashes.add(hashMatch[1]);
+    }
+    
+    console.log(`Found ${foundHashes.size} unique image hashes for listing ${id}`);
+    
+    // Generate URLs for all found hashes in high resolution
+    for (const hash of foundHashes) {
+      images.push(`https://www.schadeautos.nl/cache/picture/1200/${id}/${hash}.jpg`);
+      images.push(`https://www.schadeautos.nl/cache/picture/707/${id}/${hash}.jpg`);
+    }
+  }
+  
+  return images;
+}
+
 function extractAllImages(html: string, url: string): string[] {
   const images: string[] = [];
   
   console.log('Extracting images from URL:', url);
-  
-  // SCHADEAUTOS.NL - Multiple patterns
-  if (url.includes('schadeautos.nl')) {
-    // Pattern 1: Gallery images in JavaScript/JSON
-    const galleryJsonRegex = /"(https:\/\/www\.schadeautos\.nl\/cache\/picture\/[^"]+)"/gi;
-    let match;
-    while ((match = galleryJsonRegex.exec(html)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Pattern 2: srcset images
-    const srcsetRegex = /srcset="([^"]+)"/gi;
-    while ((match = srcsetRegex.exec(html)) !== null) {
-      const urls = match[1].split(',').map(s => s.trim().split(' ')[0]);
-      for (const imgUrl of urls) {
-        if (imgUrl.includes('schadeautos.nl') && (imgUrl.endsWith('.jpg') || imgUrl.endsWith('.jpeg') || imgUrl.endsWith('.png') || imgUrl.endsWith('.webp'))) {
-          images.push(imgUrl);
-        }
-      }
-    }
-    
-    // Pattern 3: data-src (lazy loading)
-    const dataSrcRegex = /data-src="(https:\/\/www\.schadeautos\.nl[^"]+\.(jpg|jpeg|png|webp))"/gi;
-    while ((match = dataSrcRegex.exec(html)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Pattern 4: img src
-    const imgSrcRegex = /<img[^>]+src="(https:\/\/www\.schadeautos\.nl[^"]+\.(jpg|jpeg|png|webp))"/gi;
-    while ((match = imgSrcRegex.exec(html)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Pattern 5: Background images
-    const bgRegex = /url\(['"]?(https:\/\/www\.schadeautos\.nl[^'")\s]+\.(jpg|jpeg|png|webp))['"]?\)/gi;
-    while ((match = bgRegex.exec(html)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Pattern 6: Look in script tags for image arrays
-    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-    while ((match = scriptRegex.exec(html)) !== null) {
-      const scriptContent = match[1];
-      const imgInScript = /["'](https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[^"']+\.(?:jpg|jpeg|png|webp))["']/gi;
-      let imgMatch;
-      while ((imgMatch = imgInScript.exec(scriptContent)) !== null) {
-        images.push(imgMatch[1]);
-      }
-    }
-  }
   
   // LEPARKING patterns
   if (url.includes('leparking')) {
@@ -189,7 +200,6 @@ function extractAllImages(html: string, url: string): string[] {
     const matches = html.match(leparkingRegex) || [];
     images.push(...matches);
     
-    // Scalethumb URLs
     const scalethumbRegex = /https:\/\/scalethumb\.leparking\.fr\/unsafe\/\d+x\d+\/smart\/(https[^"'\s)>\]]+)/gi;
     let match;
     while ((match = scalethumbRegex.exec(html)) !== null) {
@@ -206,7 +216,6 @@ function extractAllImages(html: string, url: string): string[] {
     const matches = html.match(as24Regex) || [];
     images.push(...matches);
     
-    // Also check for images in JSON-LD
     const jsonLdRegex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
     let match;
     while ((match = jsonLdRegex.exec(html)) !== null) {
@@ -235,30 +244,26 @@ function extractAllImages(html: string, url: string): string[] {
   }
   
   // General patterns for any site
-  // OG image
   const ogImageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
   if (ogImageMatch) images.push(ogImageMatch[1]);
   
-  // All img tags with full URLs
   const imgTagRegex = /<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
   let imgMatch;
   while ((imgMatch = imgTagRegex.exec(html)) !== null) {
     images.push(imgMatch[1]);
   }
   
-  // Data attributes with images
   const dataImgRegex = /data-(?:src|image|original|lazy|full|zoom|large|hires|big)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
   while ((imgMatch = dataImgRegex.exec(html)) !== null) {
     images.push(imgMatch[1]);
   }
   
-  // JSON image URLs
   const jsonImgRegex = /"(?:url|src|image|photo|img|picture|href)":\s*"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
   while ((imgMatch = jsonImgRegex.exec(html)) !== null) {
     images.push(imgMatch[1]);
   }
   
-  console.log(`Raw extracted: ${images.length} image URLs`);
+  console.log(`General extraction found: ${images.length} image URLs`);
   
   return images;
 }
@@ -277,7 +282,6 @@ function filterAndDedupeImages(images: string[]): string[] {
   for (const img of images) {
     if (!img || !img.startsWith('http')) continue;
     
-    // Check exclude patterns
     let excluded = false;
     for (const pattern of excludePatterns) {
       if (pattern.test(img)) {
@@ -287,22 +291,22 @@ function filterAndDedupeImages(images: string[]): string[] {
     }
     if (excluded) continue;
     
-    // Skip very short URLs (likely not real images)
     if (img.length < 50) continue;
     
-    // Create a normalized key for deduplication (remove size variations)
-    const normalizedKey = img
+    // Create normalized key - prefer larger images
+    let normalizedKey = img
       .replace(/\/\d+x\d+\//g, '/SIZE/')
       .replace(/_\d+x\d+/g, '_SIZE')
       .replace(/\/cache\/picture\/\d+\//g, '/cache/picture/X/')
-      .replace(/\?.*$/, ''); // Remove query params
+      .replace(/~v\d+/g, '') // Remove version suffix
+      .replace(/\?.*$/, '');
     
-    // Keep the larger version (higher cache size for schadeautos)
     const existingImg = seen.get(normalizedKey);
     if (existingImg) {
-      const existingSize = existingImg.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0';
-      const currentSize = img.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0';
-      if (parseInt(currentSize) > parseInt(existingSize)) {
+      // Prefer larger cache size
+      const existingSize = parseInt(existingImg.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0');
+      const currentSize = parseInt(img.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0');
+      if (currentSize > existingSize) {
         seen.set(normalizedKey, img);
       }
     } else {
@@ -310,7 +314,6 @@ function filterAndDedupeImages(images: string[]): string[] {
     }
   }
   
-  // Sort by size (prefer larger images)
   const result = Array.from(seen.values()).sort((a, b) => {
     const aSize = parseInt(a.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0');
     const bSize = parseInt(b.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0');
@@ -319,55 +322,7 @@ function filterAndDedupeImages(images: string[]): string[] {
   
   console.log(`After filtering: ${result.length} unique images`);
   
-  return result.slice(0, 100); // Max 100 images
-}
-
-async function fetchWithFirecrawl(url: string): Promise<{ html: string; images: string[] } | null> {
-  const apiKey = Deno.env.get('FIRECRAWL_API_KEY');
-  if (!apiKey) {
-    console.log('Firecrawl API key not available, using standard fetch');
-    return null;
-  }
-  
-  try {
-    console.log('Using Firecrawl to scrape:', url);
-    
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        formats: ['html', 'links', 'rawHtml'],
-        onlyMainContent: false,
-        waitFor: 2000, // Wait for JS to load images
-      }),
-    });
-    
-    if (!response.ok) {
-      console.error('Firecrawl error:', response.status);
-      return null;
-    }
-    
-    const data = await response.json();
-    console.log('Firecrawl response received');
-    
-    // Get HTML from response
-    const html = data.data?.rawHtml || data.data?.html || data.rawHtml || data.html || '';
-    
-    // Extract images from links if available
-    const links = data.data?.links || data.links || [];
-    const imageLinks = links.filter((link: string) => 
-      /\.(jpg|jpeg|png|webp)$/i.test(link)
-    );
-    
-    return { html, images: imageLinks };
-  } catch (error) {
-    console.error('Firecrawl fetch error:', error);
-    return null;
-  }
+  return result.slice(0, 100);
 }
 
 Deno.serve(async (req) => {
@@ -387,49 +342,110 @@ Deno.serve(async (req) => {
 
     console.log(`Processing listing: ${listingUrl}`);
     
-    let html = '';
-    let firecrawlImages: string[] = [];
-    
-    // Try Firecrawl first (better JS rendering)
-    const firecrawlResult = await fetchWithFirecrawl(listingUrl);
-    if (firecrawlResult) {
-      html = firecrawlResult.html;
-      firecrawlImages = firecrawlResult.images;
-      console.log(`Firecrawl got ${html.length} bytes, ${firecrawlImages.length} image links`);
-    }
-    
-    // Fallback to standard fetch if Firecrawl didn't work or returned empty
-    if (!html || html.length < 1000) {
-      console.log('Falling back to standard fetch');
-      const response = await fetch(listingUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5,nl;q=0.3',
-        },
-      });
+    // Fetch the page
+    const response = await fetch(listingUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5,nl;q=0.3',
+        'Cache-Control': 'no-cache',
+      },
+    });
 
-      if (!response.ok) {
-        console.error(`Failed to fetch page: ${response.status}`);
-        return new Response(
-          JSON.stringify({ success: false, error: `Failed to fetch page: ${response.status}` }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      html = await response.text();
-      console.log(`Standard fetch got ${html.length} bytes`);
+    if (!response.ok) {
+      console.error(`Failed to fetch page: ${response.status}`);
+      return new Response(
+        JSON.stringify({ success: false, error: `Failed to fetch page: ${response.status}` }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
+
+    const html = await response.text();
+    console.log(`Fetched ${html.length} bytes`);
 
     // Extract details
     const details = extractDetailsFromHtml(html, listingUrl);
     console.log('Extracted details:', details);
 
-    // Extract all images from HTML
-    const htmlImages = extractAllImages(html, listingUrl);
+    let allImages: string[] = [];
+
+    // SCHADEAUTOS.NL - special handling
+    if (listingUrl.includes('schadeautos.nl')) {
+      // Extract listing ID from URL
+      const listingIdMatch = listingUrl.match(/\/o\/(\d+)/);
+      const listingId = listingIdMatch?.[1] || '';
+      
+      console.log(`Schadeautos listing ID: ${listingId}`);
+      
+      // Get images using specialized function
+      const schadeautosImages = await getSchadeautosImages(listingId, html);
+      allImages.push(...schadeautosImages);
+      
+      // Also try the gallery API endpoint
+      if (listingId) {
+        try {
+          const galleryUrl = `https://www.schadeautos.nl/api/listing/${listingId}/gallery`;
+          console.log(`Trying gallery API: ${galleryUrl}`);
+          
+          const galleryResponse = await fetch(galleryUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+              'Referer': listingUrl,
+            },
+          });
+          
+          if (galleryResponse.ok) {
+            const galleryData = await galleryResponse.json();
+            console.log('Gallery API response:', JSON.stringify(galleryData).substring(0, 500));
+            
+            // Try to extract images from various possible response formats
+            if (Array.isArray(galleryData)) {
+              for (const item of galleryData) {
+                if (typeof item === 'string') allImages.push(item);
+                else if (item.url) allImages.push(item.url);
+                else if (item.src) allImages.push(item.src);
+                else if (item.image) allImages.push(item.image);
+              }
+            } else if (galleryData.images) {
+              allImages.push(...galleryData.images);
+            } else if (galleryData.data?.images) {
+              allImages.push(...galleryData.data.images);
+            }
+          }
+        } catch (e) {
+          console.log('Gallery API not available');
+        }
+        
+        // Try another possible endpoint
+        try {
+          const photosUrl = `https://www.schadeautos.nl/listing/${listingId}/photos.json`;
+          const photosResponse = await fetch(photosUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+            },
+          });
+          
+          if (photosResponse.ok) {
+            const photosData = await photosResponse.json();
+            console.log('Photos API response:', JSON.stringify(photosData).substring(0, 500));
+            
+            if (Array.isArray(photosData)) {
+              allImages.push(...photosData.filter((p: any) => typeof p === 'string'));
+            }
+          }
+        } catch (e) {
+          console.log('Photos API not available');
+        }
+      }
+    }
     
-    // Combine images from all sources
-    const allImages = [...firecrawlImages, ...htmlImages];
+    // General image extraction for all sites
+    const generalImages = extractAllImages(html, listingUrl);
+    allImages.push(...generalImages);
+    
+    console.log(`Total raw images found: ${allImages.length}`);
     
     // Filter and dedupe
     const result = filterAndDedupeImages(allImages);
