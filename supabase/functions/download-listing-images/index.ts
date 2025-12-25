@@ -15,126 +15,359 @@ interface ScrapedData {
   };
 }
 
-function extractDetails(html: string, url: string): ScrapedData['details'] {
+// Known car brands for extraction
+const CAR_BRANDS = [
+  'AUDI', 'BMW', 'MERCEDES', 'VOLKSWAGEN', 'VW', 'TOYOTA', 'HONDA', 'FORD', 'CHEVROLET',
+  'NISSAN', 'HYUNDAI', 'KIA', 'MAZDA', 'SUBARU', 'LEXUS', 'VOLVO', 'PORSCHE', 'JAGUAR',
+  'LAND ROVER', 'RANGE ROVER', 'MINI', 'FIAT', 'ALFA ROMEO', 'PEUGEOT', 'CITROEN', 'RENAULT',
+  'OPEL', 'SEAT', 'SKODA', 'SUZUKI', 'MITSUBISHI', 'JEEP', 'DODGE', 'CHRYSLER', 'CADILLAC',
+  'TESLA', 'FERRARI', 'LAMBORGHINI', 'MASERATI', 'ASTON MARTIN', 'BENTLEY', 'ROLLS ROYCE',
+  'DACIA', 'LANCIA', 'SAAB', 'INFINITI', 'ACURA', 'GENESIS', 'CUPRA', 'DS', 'SMART'
+];
+
+function extractBrandFromTitle(title: string): { brand: string; model: string } | null {
+  const upperTitle = title.toUpperCase();
+  
+  for (const brand of CAR_BRANDS) {
+    if (upperTitle.includes(brand)) {
+      // Find where the brand is and extract model after it
+      const brandIndex = upperTitle.indexOf(brand);
+      const afterBrand = title.substring(brandIndex + brand.length).trim();
+      
+      // Extract model - usually the next word(s) before numbers or special chars
+      const modelMatch = afterBrand.match(/^[\s-]*([A-Za-z0-9][\w\s-]{0,20}?)(?:\s+\d|\s+-|$)/i);
+      const model = modelMatch ? modelMatch[1].trim() : afterBrand.split(/\s+/)[0];
+      
+      return {
+        brand: brand === 'VW' ? 'VOLKSWAGEN' : brand,
+        model: model || ''
+      };
+    }
+  }
+  
+  // Fallback: first word might be brand
+  const words = title.split(/[\s-]+/);
+  if (words.length > 0) {
+    return {
+      brand: words[0].toUpperCase(),
+      model: words.length > 1 ? words[1] : ''
+    };
+  }
+  
+  return null;
+}
+
+function extractDetailsFromHtml(html: string, url: string): ScrapedData['details'] {
   const details: ScrapedData['details'] = {};
   
-  // Try to extract title
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    details.title = titleMatch[1].trim();
-  }
-
-  // Try to extract from Open Graph or meta tags
+  // Try to extract title from various sources
   const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-  if (ogTitle) {
-    details.title = ogTitle[1].trim();
-  }
-
-  // Schadeautos.nl specific patterns
-  if (url.includes('schadeautos.nl')) {
-    // Title usually contains brand and model
-    const h1Match = html.match(/<h1[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)<\/h1>/i) ||
-                    html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-    if (h1Match) {
-      const title = h1Match[1].trim();
-      details.title = title;
-      
-      // Try to extract brand (first word usually)
-      const words = title.split(/[\s-]+/);
-      if (words.length > 0) {
-        details.brand = words[0].toUpperCase();
-        if (words.length > 1) {
-          details.model = words.slice(1, 3).join(' ');
-        }
-      }
-    }
-    
-    // Look for year pattern
-    const yearMatch = html.match(/\b(20[0-2][0-9]|19[9][0-9])\b/);
-    if (yearMatch) {
-      details.year = yearMatch[1];
-    }
-    
-    // Look for mileage
-    const mileageMatch = html.match(/(\d{1,3}[.,]?\d{3})\s*km/i) ||
-                         html.match(/mileage[^>]*>([^<]*\d+[^<]*)</i);
-    if (mileageMatch) {
-      details.mileage = mileageMatch[1].replace(/[.,]/g, '');
-    }
-    
-    // Look for price
-    const priceMatch = html.match(/€\s*([\d.,]+)/i) ||
-                       html.match(/([\d.,]+)\s*€/i) ||
-                       html.match(/price[^>]*>.*?€?\s*([\d.,]+)/i);
-    if (priceMatch) {
-      details.price = priceMatch[1].replace(/[.,]/g, '');
+  const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const h1Tag = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  
+  details.title = ogTitle?.[1] || h1Tag?.[1] || titleTag?.[1] || '';
+  details.title = details.title.trim();
+  
+  // Extract brand and model from title
+  if (details.title) {
+    const brandModel = extractBrandFromTitle(details.title);
+    if (brandModel) {
+      details.brand = brandModel.brand;
+      details.model = brandModel.model;
     }
   }
   
-  // LeParking specific
-  if (url.includes('leparking')) {
-    const brandMatch = html.match(/itemprop="brand"[^>]*>([^<]+)</i) ||
-                       html.match(/data-brand="([^"]+)"/i);
-    if (brandMatch) details.brand = brandMatch[1].trim().toUpperCase();
-    
-    const modelMatch = html.match(/itemprop="model"[^>]*>([^<]+)</i) ||
-                       html.match(/data-model="([^"]+)"/i);
-    if (modelMatch) details.model = modelMatch[1].trim();
-    
-    const yearMatch = html.match(/itemprop="releaseDate"[^>]*>(\d{4})/i) ||
-                      html.match(/"year":\s*"?(\d{4})"?/i);
-    if (yearMatch) details.year = yearMatch[1];
-    
-    const mileageMatch = html.match(/itemprop="mileage"[^>]*>([^<]+)</i) ||
-                         html.match(/"mileage":\s*"?(\d+)"?/i);
-    if (mileageMatch) details.mileage = mileageMatch[1].replace(/\D/g, '');
-    
-    const priceMatch = html.match(/itemprop="price"[^>]*content="(\d+)"/i) ||
-                       html.match(/"price":\s*"?(\d+)"?/i);
-    if (priceMatch) details.price = priceMatch[1];
+  // Extract year - look for 4-digit year pattern
+  const yearPatterns = [
+    /["']?year["']?\s*[:=]\s*["']?(\d{4})["']?/i,
+    /(\d{4})\s*(?:m\.|metai|jaar|year|bj)/i,
+    /\b(20[0-2][0-9])\b/,
+    /\b(19[9][0-9])\b/,
+  ];
+  for (const pattern of yearPatterns) {
+    const match = html.match(pattern);
+    if (match && parseInt(match[1]) >= 1990 && parseInt(match[1]) <= 2025) {
+      details.year = match[1];
+      break;
+    }
   }
-
-  // AutoScout24 specific
-  if (url.includes('autoscout24')) {
-    const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([^<]+)<\/script>/gi);
-    if (jsonLdMatch) {
-      for (const match of jsonLdMatch) {
-        try {
-          const jsonContent = match.replace(/<[^>]+>/g, '');
-          const data = JSON.parse(jsonContent);
-          if (data['@type'] === 'Car' || data['@type'] === 'Vehicle') {
-            if (data.brand?.name) details.brand = data.brand.name.toUpperCase();
-            if (data.model) details.model = data.model;
-            if (data.vehicleModelDate) details.year = data.vehicleModelDate;
-            if (data.mileageFromOdometer?.value) details.mileage = String(data.mileageFromOdometer.value);
-            if (data.offers?.price) details.price = String(data.offers.price);
-          }
-        } catch (e) {
-          // ignore parse errors
-        }
+  
+  // Extract mileage
+  const mileagePatterns = [
+    /["']?(?:mileage|km|rida|kilometerstand)["']?\s*[:=]\s*["']?([\d.,]+)["']?/i,
+    /([\d.,]{2,6})\s*km\b/i,
+    /\b([\d]{2,3}[.,]?\d{3})\s*(?:km|kilometers)/i,
+  ];
+  for (const pattern of mileagePatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      details.mileage = match[1].replace(/[.,]/g, '');
+      break;
+    }
+  }
+  
+  // Extract price
+  const pricePatterns = [
+    /["']?price["']?\s*[:=]\s*["']?([\d.,]+)["']?/i,
+    /€\s*([\d.,]+)/i,
+    /([\d.,]+)\s*€/i,
+    /EUR\s*([\d.,]+)/i,
+  ];
+  for (const pattern of pricePatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      const priceStr = match[1].replace(/[.,]/g, '');
+      const price = parseInt(priceStr);
+      if (price > 100 && price < 1000000) {
+        details.price = priceStr;
+        break;
       }
     }
   }
-
-  // Mobile.de specific
-  if (url.includes('mobile.de')) {
-    const brandMatch = html.match(/"make":\s*"([^"]+)"/i);
-    if (brandMatch) details.brand = brandMatch[1].toUpperCase();
-    
-    const modelMatch = html.match(/"model":\s*"([^"]+)"/i);
-    if (modelMatch) details.model = modelMatch[1];
-    
-    const yearMatch = html.match(/"firstRegistration":\s*"(\d{4})/i);
-    if (yearMatch) details.year = yearMatch[1];
-    
-    const mileageMatch = html.match(/"mileage":\s*(\d+)/i);
-    if (mileageMatch) details.mileage = mileageMatch[1];
-    
-    const priceMatch = html.match(/"price":\s*(\d+)/i);
-    if (priceMatch) details.price = priceMatch[1];
-  }
-
+  
   return details;
+}
+
+function extractAllImages(html: string, url: string): string[] {
+  const images: string[] = [];
+  
+  console.log('Extracting images from URL:', url);
+  
+  // SCHADEAUTOS.NL - Multiple patterns
+  if (url.includes('schadeautos.nl')) {
+    // Pattern 1: Gallery images in JavaScript/JSON
+    const galleryJsonRegex = /"(https:\/\/www\.schadeautos\.nl\/cache\/picture\/[^"]+)"/gi;
+    let match;
+    while ((match = galleryJsonRegex.exec(html)) !== null) {
+      images.push(match[1]);
+    }
+    
+    // Pattern 2: srcset images
+    const srcsetRegex = /srcset="([^"]+)"/gi;
+    while ((match = srcsetRegex.exec(html)) !== null) {
+      const urls = match[1].split(',').map(s => s.trim().split(' ')[0]);
+      for (const imgUrl of urls) {
+        if (imgUrl.includes('schadeautos.nl') && (imgUrl.endsWith('.jpg') || imgUrl.endsWith('.jpeg') || imgUrl.endsWith('.png') || imgUrl.endsWith('.webp'))) {
+          images.push(imgUrl);
+        }
+      }
+    }
+    
+    // Pattern 3: data-src (lazy loading)
+    const dataSrcRegex = /data-src="(https:\/\/www\.schadeautos\.nl[^"]+\.(jpg|jpeg|png|webp))"/gi;
+    while ((match = dataSrcRegex.exec(html)) !== null) {
+      images.push(match[1]);
+    }
+    
+    // Pattern 4: img src
+    const imgSrcRegex = /<img[^>]+src="(https:\/\/www\.schadeautos\.nl[^"]+\.(jpg|jpeg|png|webp))"/gi;
+    while ((match = imgSrcRegex.exec(html)) !== null) {
+      images.push(match[1]);
+    }
+    
+    // Pattern 5: Background images
+    const bgRegex = /url\(['"]?(https:\/\/www\.schadeautos\.nl[^'")\s]+\.(jpg|jpeg|png|webp))['"]?\)/gi;
+    while ((match = bgRegex.exec(html)) !== null) {
+      images.push(match[1]);
+    }
+    
+    // Pattern 6: Look in script tags for image arrays
+    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+    while ((match = scriptRegex.exec(html)) !== null) {
+      const scriptContent = match[1];
+      const imgInScript = /["'](https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[^"']+\.(?:jpg|jpeg|png|webp))["']/gi;
+      let imgMatch;
+      while ((imgMatch = imgInScript.exec(scriptContent)) !== null) {
+        images.push(imgMatch[1]);
+      }
+    }
+  }
+  
+  // LEPARKING patterns
+  if (url.includes('leparking')) {
+    const leparkingRegex = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>\]]+\.(?:jpg|jpeg|png|webp)/gi;
+    const matches = html.match(leparkingRegex) || [];
+    images.push(...matches);
+    
+    // Scalethumb URLs
+    const scalethumbRegex = /https:\/\/scalethumb\.leparking\.fr\/unsafe\/\d+x\d+\/smart\/(https[^"'\s)>\]]+)/gi;
+    let match;
+    while ((match = scalethumbRegex.exec(html)) !== null) {
+      try {
+        const decoded = decodeURIComponent(match[1]);
+        images.push(decoded);
+      } catch (e) {}
+    }
+  }
+  
+  // AUTOSCOUT24 patterns
+  if (url.includes('autoscout24')) {
+    const as24Regex = /https:\/\/[^"'\s]+\.autoscout24[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi;
+    const matches = html.match(as24Regex) || [];
+    images.push(...matches);
+    
+    // Also check for images in JSON-LD
+    const jsonLdRegex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
+    let match;
+    while ((match = jsonLdRegex.exec(html)) !== null) {
+      try {
+        const json = JSON.parse(match[1]);
+        if (json.image) {
+          if (Array.isArray(json.image)) {
+            images.push(...json.image);
+          } else if (typeof json.image === 'string') {
+            images.push(json.image);
+          }
+        }
+      } catch (e) {}
+    }
+  }
+  
+  // MOBILE.DE patterns
+  if (url.includes('mobile.de')) {
+    const mobileDeRegex = /https:\/\/[^"'\s]+i\.ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi;
+    const matches = html.match(mobileDeRegex) || [];
+    images.push(...matches);
+    
+    const mobileDeRegex2 = /https:\/\/[^"'\s]+mobile\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi;
+    const matches2 = html.match(mobileDeRegex2) || [];
+    images.push(...matches2);
+  }
+  
+  // General patterns for any site
+  // OG image
+  const ogImageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+  if (ogImageMatch) images.push(ogImageMatch[1]);
+  
+  // All img tags with full URLs
+  const imgTagRegex = /<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+  let imgMatch;
+  while ((imgMatch = imgTagRegex.exec(html)) !== null) {
+    images.push(imgMatch[1]);
+  }
+  
+  // Data attributes with images
+  const dataImgRegex = /data-(?:src|image|original|lazy|full|zoom|large|hires|big)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+  while ((imgMatch = dataImgRegex.exec(html)) !== null) {
+    images.push(imgMatch[1]);
+  }
+  
+  // JSON image URLs
+  const jsonImgRegex = /"(?:url|src|image|photo|img|picture|href)":\s*"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
+  while ((imgMatch = jsonImgRegex.exec(html)) !== null) {
+    images.push(imgMatch[1]);
+  }
+  
+  console.log(`Raw extracted: ${images.length} image URLs`);
+  
+  return images;
+}
+
+function filterAndDedupeImages(images: string[]): string[] {
+  const excludePatterns = [
+    /logo/i, /icon/i, /flag/i, /avatar/i, /placeholder/i, /blank/i,
+    /spinner/i, /loading/i, /banner/i, /ad[-_]/i, /\/ads\//i,
+    /favicon/i, /button/i, /arrow/i, /social/i, /share/i,
+    /facebook|twitter|instagram|linkedin|youtube|whatsapp/i,
+    /1x1|pixel|tracking/i, /badge/i, /rating/i, /star/i,
+  ];
+  
+  const seen = new Map<string, string>();
+  
+  for (const img of images) {
+    if (!img || !img.startsWith('http')) continue;
+    
+    // Check exclude patterns
+    let excluded = false;
+    for (const pattern of excludePatterns) {
+      if (pattern.test(img)) {
+        excluded = true;
+        break;
+      }
+    }
+    if (excluded) continue;
+    
+    // Skip very short URLs (likely not real images)
+    if (img.length < 50) continue;
+    
+    // Create a normalized key for deduplication (remove size variations)
+    const normalizedKey = img
+      .replace(/\/\d+x\d+\//g, '/SIZE/')
+      .replace(/_\d+x\d+/g, '_SIZE')
+      .replace(/\/cache\/picture\/\d+\//g, '/cache/picture/X/')
+      .replace(/\?.*$/, ''); // Remove query params
+    
+    // Keep the larger version (higher cache size for schadeautos)
+    const existingImg = seen.get(normalizedKey);
+    if (existingImg) {
+      const existingSize = existingImg.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0';
+      const currentSize = img.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0';
+      if (parseInt(currentSize) > parseInt(existingSize)) {
+        seen.set(normalizedKey, img);
+      }
+    } else {
+      seen.set(normalizedKey, img);
+    }
+  }
+  
+  // Sort by size (prefer larger images)
+  const result = Array.from(seen.values()).sort((a, b) => {
+    const aSize = parseInt(a.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0');
+    const bSize = parseInt(b.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0');
+    return bSize - aSize;
+  });
+  
+  console.log(`After filtering: ${result.length} unique images`);
+  
+  return result.slice(0, 100); // Max 100 images
+}
+
+async function fetchWithFirecrawl(url: string): Promise<{ html: string; images: string[] } | null> {
+  const apiKey = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!apiKey) {
+    console.log('Firecrawl API key not available, using standard fetch');
+    return null;
+  }
+  
+  try {
+    console.log('Using Firecrawl to scrape:', url);
+    
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        formats: ['html', 'links', 'rawHtml'],
+        onlyMainContent: false,
+        waitFor: 2000, // Wait for JS to load images
+      }),
+    });
+    
+    if (!response.ok) {
+      console.error('Firecrawl error:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    console.log('Firecrawl response received');
+    
+    // Get HTML from response
+    const html = data.data?.rawHtml || data.data?.html || data.rawHtml || data.html || '';
+    
+    // Extract images from links if available
+    const links = data.data?.links || data.links || [];
+    const imageLinks = links.filter((link: string) => 
+      /\.(jpg|jpeg|png|webp)$/i.test(link)
+    );
+    
+    return { html, images: imageLinks };
+  } catch (error) {
+    console.error('Firecrawl fetch error:', error);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -152,191 +385,56 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Fetching images from: ${listingUrl}`);
-
-    const response = await fetch(listingUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch page: ${response.status}`);
-      return new Response(
-        JSON.stringify({ success: false, error: `Failed to fetch page: ${response.status}` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const html = await response.text();
-    console.log(`Fetched ${html.length} bytes of HTML`);
-
-    // Extract car details
-    const details = extractDetails(html, listingUrl);
-    console.log('Extracted details:', details);
-
-    // Extract all images
-    const images: string[] = [];
-
-    // Schadeautos.nl specific - get all images from the gallery
-    if (listingUrl.includes('schadeautos.nl')) {
-      // Main gallery images
-      const galleryRegex = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[^"'\s]+\.jpg/gi;
-      const galleryMatches = html.match(galleryRegex) || [];
-      images.push(...galleryMatches);
-      
-      // Also look for srcset images
-      const srcsetRegex = /srcset="([^"]+)"/gi;
-      let srcsetMatch;
-      while ((srcsetMatch = srcsetRegex.exec(html)) !== null) {
-        const srcset = srcsetMatch[1];
-        const urls = srcset.split(',').map(s => s.trim().split(' ')[0]);
-        for (const url of urls) {
-          if (url.includes('schadeautos.nl') && url.includes('.jpg')) {
-            images.push(url);
-          }
-        }
-      }
-
-      // Look for data-src attributes (lazy loaded images)
-      const dataSrcRegex = /data-src="(https:\/\/www\.schadeautos\.nl[^"]+\.jpg)"/gi;
-      let dataSrcMatch;
-      while ((dataSrcMatch = dataSrcRegex.exec(html)) !== null) {
-        images.push(dataSrcMatch[1]);
-      }
-
-      // Look for any img src with schadeautos
-      const imgSrcRegex = /<img[^>]+src="(https:\/\/www\.schadeautos\.nl[^"]+\.jpg)"/gi;
-      let imgMatch;
-      while ((imgMatch = imgSrcRegex.exec(html)) !== null) {
-        images.push(imgMatch[1]);
-      }
-      
-      // Also look in JavaScript data
-      const jsImageRegex = /"(https:\/\/www\.schadeautos\.nl\/cache\/picture\/[^"]+\.jpg)"/gi;
-      let jsMatch;
-      while ((jsMatch = jsImageRegex.exec(html)) !== null) {
-        images.push(jsMatch[1]);
-      }
-    }
-
-    // High-quality cloud.leparking URLs
-    const cloudLeparkingRegex = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>\]]+\.(?:jpg|jpeg|png|webp)/gi;
-    const cloudMatches = html.match(cloudLeparkingRegex) || [];
-    images.push(...cloudMatches);
-
-    // Scalethumb URLs - extract original
-    const scalethumbRegex = /https:\/\/scalethumb\.leparking\.fr\/unsafe\/\d+x\d+\/smart\/(https[^"'\s)>\]]+)/gi;
-    let match;
-    while ((match = scalethumbRegex.exec(html)) !== null) {
-      if (match[1]) {
-        try {
-          const decoded = decodeURIComponent(match[1]);
-          if (decoded.includes('cloud.leparking.fr')) {
-            images.push(decoded);
-          }
-        } catch (e) {
-          // ignore decode errors
-        }
-      }
-    }
-
-    // AutoScout24 patterns
-    const autoscoutRegex = /https:\/\/[^"'\s]+autoscout24[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi;
-    const autoscoutMatches = html.match(autoscoutRegex) || [];
-    images.push(...autoscoutMatches);
-
-    // Mobile.de patterns
-    const mobileDeRegex = /https:\/\/[^"'\s]+mobile\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi;
-    const mobileDeMatches = html.match(mobileDeRegex) || [];
-    images.push(...mobileDeMatches);
-
-    // General image patterns
-    const generalPatterns = [
-      /https:\/\/res\.cloudinary\.com\/[^"'\s)>\]]+\.(?:jpg|jpeg|png|webp)/gi,
-      /<img[^>]+src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp))"/gi,
-    ];
+    console.log(`Processing listing: ${listingUrl}`);
     
-    for (const pattern of generalPatterns) {
-      const matches = html.match(pattern) || [];
-      for (const m of matches) {
-        // Extract URL from img tag if needed
-        const urlMatch = m.match(/src="([^"]+)"/);
-        if (urlMatch) {
-          images.push(urlMatch[1]);
-        } else if (m.startsWith('http')) {
-          images.push(m);
-        }
-      }
+    let html = '';
+    let firecrawlImages: string[] = [];
+    
+    // Try Firecrawl first (better JS rendering)
+    const firecrawlResult = await fetchWithFirecrawl(listingUrl);
+    if (firecrawlResult) {
+      html = firecrawlResult.html;
+      firecrawlImages = firecrawlResult.images;
+      console.log(`Firecrawl got ${html.length} bytes, ${firecrawlImages.length} image links`);
     }
-
-    // Extract from data attributes
-    const dataLargeRegex = /data-(?:large|full|original|zoom|hires|highres|big)(?:-src)?=["']([^"']+)["']/gi;
-    while ((match = dataLargeRegex.exec(html)) !== null) {
-      if (match[1] && (match[1].includes('.jpg') || match[1].includes('.jpeg') || match[1].includes('.png') || match[1].includes('.webp'))) {
-        let url = match[1];
-        if (url.startsWith('//')) url = 'https:' + url;
-        if (url.startsWith('http')) images.push(url);
-      }
-    }
-
-    // Extract from gallery JavaScript data
-    const jsonImageRegex = /"(?:url|src|image|photo|img|href)":\s*"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-    while ((match = jsonImageRegex.exec(html)) !== null) {
-      if (match[1]) images.push(match[1]);
-    }
-
-    // Filter and dedupe
-    const uniqueImages = [...new Set(images)]
-      .filter(img => {
-        const lower = img.toLowerCase();
-        if (lower.includes('logo')) return false;
-        if (lower.includes('icon')) return false;
-        if (lower.includes('flag')) return false;
-        if (lower.includes('avatar')) return false;
-        if (lower.includes('placeholder')) return false;
-        if (lower.includes('blank')) return false;
-        if (lower.includes('spinner')) return false;
-        if (lower.includes('loading')) return false;
-        if (lower.includes('banner')) return false;
-        if (lower.includes('ad-')) return false;
-        if (lower.includes('/ads/')) return false;
-        if (lower.includes('thumbnail') && !lower.includes('schadeautos')) return false;
-        if (img.length < 40) return false;
-        return true;
-      })
-      .map(img => {
-        if (img.startsWith('//')) return `https:${img}`;
-        return img;
-      })
-      // Prefer larger images (higher resolution indicators in URL)
-      .sort((a, b) => {
-        // Prefer schadeautos images with larger cache sizes
-        const aSize = a.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0';
-        const bSize = b.match(/\/cache\/picture\/(\d+)\//)?.[1] || '0';
-        return parseInt(bSize) - parseInt(aSize);
+    
+    // Fallback to standard fetch if Firecrawl didn't work or returned empty
+    if (!html || html.length < 1000) {
+      console.log('Falling back to standard fetch');
+      const response = await fetch(listingUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5,nl;q=0.3',
+        },
       });
 
-    // Deduplicate by removing size variations
-    const seen = new Set<string>();
-    const result: string[] = [];
-    
-    for (const img of uniqueImages) {
-      const key = img
-        .replace(/\/\d+x\d+\//g, '/')
-        .replace(/_\d+x\d+/g, '')
-        .replace(/\/cache\/picture\/\d+\//g, '/cache/picture/X/');
-      
-      if (!seen.has(key) && img.startsWith('http')) {
-        seen.add(key);
-        result.push(img);
+      if (!response.ok) {
+        console.error(`Failed to fetch page: ${response.status}`);
+        return new Response(
+          JSON.stringify({ success: false, error: `Failed to fetch page: ${response.status}` }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
-      if (result.length >= 100) break; // Allow more images
+
+      html = await response.text();
+      console.log(`Standard fetch got ${html.length} bytes`);
     }
 
-    console.log(`Found ${result.length} unique high-quality images`);
+    // Extract details
+    const details = extractDetailsFromHtml(html, listingUrl);
+    console.log('Extracted details:', details);
+
+    // Extract all images from HTML
+    const htmlImages = extractAllImages(html, listingUrl);
+    
+    // Combine images from all sources
+    const allImages = [...firecrawlImages, ...htmlImages];
+    
+    // Filter and dedupe
+    const result = filterAndDedupeImages(allImages);
+    
+    console.log(`Final result: ${result.length} unique images`);
 
     return new Response(
       JSON.stringify({ 
