@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Link2, MessageCircle, Instagram, Facebook, Loader2, ImageIcon, X, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { Link2, MessageCircle, Instagram, Facebook, Loader2, ImageIcon, X, ChevronLeft, ChevronRight, Sparkles, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -28,8 +28,8 @@ const UrlShareDialog = () => {
   const [isPublishing, setIsPublishing] = useState<string | null>(null);
   const [isRemovingWatermark, setIsRemovingWatermark] = useState(false);
   const [scrapedData, setScrapedData] = useState<ScrapedData | null>(null);
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-  const [cleanedImageUrl, setCleanedImageUrl] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
+  const [cleanedImages, setCleanedImages] = useState<Map<number, string>>(new Map());
   
   // Listing details for message generation
   const [details, setDetails] = useState<ListingDetails>({
@@ -79,7 +79,8 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
 
     setIsLoading(true);
     setScrapedData(null);
-    setCleanedImageUrl(null);
+    setCleanedImages(new Map());
+    setSelectedImages(new Set());
 
     try {
       const { data, error } = await supabase.functions.invoke('download-listing-images', {
@@ -102,7 +103,20 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
           images: data.images,
           url: url,
         });
-        setSelectedImageIndex(0);
+        
+        // Auto-fill details from scraped data
+        if (data.details) {
+          setDetails({
+            brand: data.details.brand || '',
+            model: data.details.model || '',
+            year: data.details.year || '',
+            mileage: data.details.mileage || '',
+            price: data.details.price || '',
+          });
+        }
+
+        // Select first image by default
+        setSelectedImages(new Set([0]));
 
         toast({
           title: '✅ Rasta!',
@@ -127,23 +141,36 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
     }
   };
 
-  const handleRemoveWatermark = async () => {
+  const toggleImageSelection = (index: number) => {
+    const newSelection = new Set(selectedImages);
+    if (newSelection.has(index)) {
+      newSelection.delete(index);
+    } else {
+      newSelection.add(index);
+    }
+    setSelectedImages(newSelection);
+  };
+
+  const handleRemoveWatermark = async (imageIndex: number) => {
     if (!scrapedData) return;
     
     setIsRemovingWatermark(true);
     
     try {
       const { data, error } = await supabase.functions.invoke('remove-watermark', {
-        body: { imageUrl: scrapedData.images[selectedImageIndex] },
+        body: { imageUrl: scrapedData.images[imageIndex] },
       });
 
       if (error) throw error;
 
       if (data.success && data.cleanedImageUrl) {
-        setCleanedImageUrl(data.cleanedImageUrl);
+        const newCleanedImages = new Map(cleanedImages);
+        newCleanedImages.set(imageIndex, data.cleanedImageUrl);
+        setCleanedImages(newCleanedImages);
+        
         toast({
           title: '✅ Vandens ženklas pašalintas!',
-          description: 'Nuotrauka paruošta publikavimui',
+          description: data.message || 'Nuotrauka paruošta',
         });
       } else {
         toast({
@@ -164,12 +191,61 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
     }
   };
 
+  const handleRemoveAllWatermarks = async () => {
+    if (!scrapedData || selectedImages.size === 0) return;
+    
+    setIsRemovingWatermark(true);
+    let successCount = 0;
+    
+    for (const index of selectedImages) {
+      if (cleanedImages.has(index)) continue; // Skip already cleaned
+      
+      try {
+        const { data, error } = await supabase.functions.invoke('remove-watermark', {
+          body: { imageUrl: scrapedData.images[index] },
+        });
+
+        if (!error && data.success && data.cleanedImageUrl) {
+          const newCleanedImages = new Map(cleanedImages);
+          newCleanedImages.set(index, data.cleanedImageUrl);
+          setCleanedImages(newCleanedImages);
+          successCount++;
+        }
+      } catch (e) {
+        console.error('Watermark removal error for image', index, e);
+      }
+      
+      // Small delay between requests
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    setIsRemovingWatermark(false);
+    
+    if (successCount > 0) {
+      toast({
+        title: '✅ Vandens ženklai pašalinti!',
+        description: `Apdorota ${successCount} nuotraukų`,
+      });
+    }
+  };
+
   const handlePublish = async (platform: 'messenger' | 'fb-stories' | 'ig-stories') => {
-    if (!scrapedData) return;
+    if (!scrapedData || selectedImages.size === 0) {
+      toast({
+        title: 'Klaida',
+        description: 'Pasirinkite bent vieną nuotrauką',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsPublishing(platform);
     
-    const imageToUse = cleanedImageUrl || scrapedData.images[selectedImageIndex];
+    // Get selected image URLs (use cleaned version if available)
+    const imageUrls = Array.from(selectedImages).map(index => 
+      cleanedImages.get(index) || scrapedData.images[index]
+    );
+    
     const message = platform === 'messenger' 
       ? (messengerMessage || generateMessengerMessage())
       : (storiesMessage || generateStoriesMessage());
@@ -179,7 +255,8 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
         body: {
           platform,
           message,
-          imageUrl: imageToUse,
+          imageUrl: imageUrls[0], // Primary image
+          imageUrls, // All selected images
           linkUrl: scrapedData.url,
         },
       });
@@ -241,8 +318,8 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
   const handleReset = () => {
     setUrl('');
     setScrapedData(null);
-    setSelectedImageIndex(0);
-    setCleanedImageUrl(null);
+    setSelectedImages(new Set());
+    setCleanedImages(new Map());
     setDetails({ brand: '', model: '', year: '', mileage: '', price: '' });
     setMessengerMessage('');
     setStoriesMessage('');
@@ -255,22 +332,6 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
     }
   };
 
-  const nextImage = () => {
-    if (scrapedData && selectedImageIndex < scrapedData.images.length - 1) {
-      setSelectedImageIndex(prev => prev + 1);
-      setCleanedImageUrl(null);
-    }
-  };
-
-  const prevImage = () => {
-    if (selectedImageIndex > 0) {
-      setSelectedImageIndex(prev => prev - 1);
-      setCleanedImageUrl(null);
-    }
-  };
-
-  const currentImage = cleanedImageUrl || (scrapedData?.images[selectedImageIndex] ?? '');
-
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
@@ -279,12 +340,15 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
           Įkelti iš nuorodos
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby="url-share-description">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link2 className="w-5 h-5" />
             Publikuoti iš nuorodos
           </DialogTitle>
+          <DialogDescription id="url-share-description">
+            Įklijuokite skelbimo nuorodą, pasirinkite nuotraukas ir publikuokite
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -310,89 +374,6 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
           {/* Scraped Content */}
           {scrapedData && (
             <>
-              {/* Image Gallery */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4" />
-                  Nuotrauka ({selectedImageIndex + 1}/{scrapedData.images.length})
-                  {cleanedImageUrl && (
-                    <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded">
-                      ✓ Be vandens ženklo
-                    </span>
-                  )}
-                </label>
-                
-                <div className="relative">
-                  <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                    <img
-                      src={currentImage}
-                      alt={`Nuotrauka ${selectedImageIndex + 1}`}
-                      className="w-full h-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/placeholder.svg';
-                      }}
-                    />
-                  </div>
-                  
-                  {scrapedData.images.length > 1 && (
-                    <>
-                      <button
-                        onClick={prevImage}
-                        disabled={selectedImageIndex === 0}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-background/80 backdrop-blur hover:bg-background disabled:opacity-50"
-                      >
-                        <ChevronLeft className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={nextImage}
-                        disabled={selectedImageIndex === scrapedData.images.length - 1}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-background/80 backdrop-blur hover:bg-background disabled:opacity-50"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {/* Thumbnail strip */}
-                {scrapedData.images.length > 1 && (
-                  <div className="flex gap-1 overflow-x-auto pb-2">
-                    {scrapedData.images.slice(0, 10).map((img, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          setSelectedImageIndex(idx);
-                          setCleanedImageUrl(null);
-                        }}
-                        className={`flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition-all ${
-                          idx === selectedImageIndex 
-                            ? 'border-primary ring-2 ring-primary/30' 
-                            : 'border-transparent hover:border-muted-foreground/30'
-                        }`}
-                      >
-                        <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Remove watermark button */}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleRemoveWatermark}
-                  disabled={isRemovingWatermark || !!cleanedImageUrl}
-                  className="gap-2"
-                >
-                  {isRemovingWatermark ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4" />
-                  )}
-                  {cleanedImageUrl ? 'Vandens ženklas pašalintas' : 'Pašalinti vandens ženklą'}
-                </Button>
-              </div>
-
               {/* Listing Details */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <Input
@@ -420,6 +401,81 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                   onChange={(e) => setDetails(d => ({ ...d, price: e.target.value }))}
                   placeholder="Kaina (€)"
                 />
+              </div>
+
+              {/* Image Gallery */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4" />
+                    Nuotraukos ({selectedImages.size} pasirinkta iš {scrapedData.images.length})
+                  </label>
+                  {selectedImages.size > 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleRemoveAllWatermarks}
+                      disabled={isRemovingWatermark}
+                      className="gap-2"
+                    >
+                      {isRemovingWatermark ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      Pašalinti vandens ženklus
+                    </Button>
+                  )}
+                </div>
+                
+                {/* Image grid - show all images */}
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto p-1">
+                  {scrapedData.images.map((img, idx) => {
+                    const isSelected = selectedImages.has(idx);
+                    const isCleaned = cleanedImages.has(idx);
+                    const displayUrl = cleanedImages.get(idx) || img;
+                    
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => toggleImageSelection(idx)}
+                        className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all ${
+                          isSelected 
+                            ? 'border-primary ring-2 ring-primary/30' 
+                            : 'border-transparent hover:border-muted-foreground/30'
+                        }`}
+                      >
+                        <img
+                          src={displayUrl}
+                          alt={`Nuotrauka ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = '/placeholder.svg';
+                          }}
+                        />
+                        
+                        {/* Selection indicator */}
+                        {isSelected && (
+                          <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
+                            <Check className="w-3 h-3 text-primary-foreground" />
+                          </div>
+                        )}
+                        
+                        {/* Cleaned indicator */}
+                        {isCleaned && (
+                          <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-green-500 rounded text-[10px] text-white font-medium">
+                            ✓ Clean
+                          </div>
+                        )}
+                        
+                        {/* Index number */}
+                        <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white">
+                          {idx + 1}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Tabs for different sharing options */}
@@ -456,7 +512,7 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                     </Button>
                     <Button
                       onClick={() => handlePublish('messenger')}
-                      disabled={isPublishing !== null}
+                      disabled={isPublishing !== null || selectedImages.size === 0}
                       className="flex-1 gap-2 bg-[#0084FF] hover:bg-[#0084FF]/90"
                     >
                       {isPublishing === 'messenger' ? (
@@ -483,7 +539,7 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       onClick={() => handlePublish('fb-stories')}
-                      disabled={isPublishing !== null}
+                      disabled={isPublishing !== null || selectedImages.size === 0}
                       className="gap-2 bg-[#1877F2] hover:bg-[#1877F2]/90"
                     >
                       {isPublishing === 'fb-stories' ? (
@@ -495,7 +551,7 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                     </Button>
                     <Button
                       onClick={() => handlePublish('ig-stories')}
-                      disabled={isPublishing !== null}
+                      disabled={isPublishing !== null || selectedImages.size === 0}
                       className="gap-2 bg-gradient-to-r from-[#833AB4] via-[#FD1D1D] to-[#F77737] hover:opacity-90"
                     >
                       {isPublishing === 'ig-stories' ? (
@@ -523,7 +579,7 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
             <div className="text-center py-8 text-muted-foreground">
               <Link2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p className="text-sm">Įklijuokite skelbimo nuorodą iš bet kurio portalo</p>
-              <p className="text-xs mt-1">Palaikoma: leparking.fr, autoscout24, mobile.de ir kt.</p>
+              <p className="text-xs mt-1">Palaikoma: schadeautos.nl, leparking.fr, autoscout24, mobile.de</p>
             </div>
           )}
 
