@@ -333,7 +333,7 @@ Deno.serve(async (req) => {
         seen.add(key);
         result.push(img);
       }
-      if (result.length >= 30) break;
+      if (result.length >= 100) break; // Allow more images
     }
 
     console.log(`Found ${result.length} unique high-quality images`);
