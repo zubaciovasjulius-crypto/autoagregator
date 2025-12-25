@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import { toast } from '@/hooks/use-toast';
 import CarCard from '@/components/CarCard';
+import UrlShareDialog from '@/components/UrlShareDialog';
 
 const REFRESH_INTERVAL = 90000; // 90 seconds - to avoid Firecrawl rate limits
 
@@ -515,11 +516,14 @@ const Index = () => {
             <Car className="w-5 h-5" />
             Rasti skelbimai ({displayListings.length})
           </h2>
-          {displayListings.length > 0 && (
-            <Button variant="outline" size="sm" onClick={clearAllFoundListings}>
-              Išvalyti visus
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <UrlShareDialog />
+            {displayListings.length > 0 && (
+              <Button variant="outline" size="sm" onClick={clearAllFoundListings}>
+                Išvalyti visus
+              </Button>
+            )}
+          </div>
         </div>
 
         {(isChecking || foundLoading) && displayListings.length === 0 ? (
