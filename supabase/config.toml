@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.publish-to-social]
 verify_jwt = false
+
+[functions.remove-watermark]
+verify_jwt = false
