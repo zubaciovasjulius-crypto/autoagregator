@@ -62,8 +62,6 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
 💰 Kaina: ${details.price} €
 ⛽ Daugiau info žinutėse!
 
-🔗 ${url}
-
 #autokopers #${details.brand.toLowerCase()} #${details.model.toLowerCase().replace(/\s+/g, '')} #automobiliai #parduodama`;
   };
 
