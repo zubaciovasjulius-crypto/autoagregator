@@ -63,6 +63,13 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
   details.title = ogTitle?.[1] || h1Tag?.[1] || titleTag?.[1] || '';
   details.title = details.title.trim();
   
+  // Skip if we got access denied page
+  if (details.title.toLowerCase().includes('zugriff verweigert') || 
+      details.title.toLowerCase().includes('access denied') ||
+      details.title.toLowerCase().includes('captcha')) {
+    details.title = '';
+  }
+  
   if (details.title) {
     const brandModel = extractBrandFromTitle(details.title);
     if (brandModel) {
@@ -128,11 +135,13 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
 function extractMobileDeImages(html: string): string[] {
   const images: string[] = [];
   
-  // Mobile.de uses eBay image CDN
+  // Mobile.de uses various CDNs
   const patterns = [
     /https:\/\/[^"'\s]+i\.ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
     /https:\/\/[^"'\s]+prod\.pictures\.autoscout24\.net[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
     /https:\/\/[^"'\s]+img\.classistatic\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s]+mobile\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s]+apollo[^"'\s]+mobile[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
   ];
   
   for (const pattern of patterns) {
@@ -160,6 +169,12 @@ function extractMobileDeImages(html: string): string[] {
   // Extract from gallery data
   const galleryPattern = /"imageUrl"\s*:\s*"([^"]+)"/gi;
   while ((match = galleryPattern.exec(html)) !== null) {
+    images.push(match[1].replace(/\\\//g, '/'));
+  }
+  
+  // Extract from image arrays in script tags
+  const imgArrayPattern = /\["(https?:\/\/[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
+  while ((match = imgArrayPattern.exec(html)) !== null) {
     images.push(match[1].replace(/\\\//g, '/'));
   }
   
@@ -219,6 +234,7 @@ function extract2dehandsImages(html: string): string[] {
     /https:\/\/[^"'\s]*2ememain[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
     /https:\/\/[^"'\s]*lbthumbs[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
     /https:\/\/[^"'\s]*marktplaats[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
+    /https:\/\/[^"'\s]*cloud\.leparking[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
   ];
   
   for (const pattern of patterns) {
@@ -481,7 +497,7 @@ function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
 
 function detectSource(url: string): string {
   const urlLower = url.toLowerCase();
-  if (urlLower.includes('mobile.de')) return 'mobile.de';
+  if (urlLower.includes('mobile.de') || urlLower.includes('suchen.mobile.de')) return 'mobile.de';
   if (urlLower.includes('schadeautos.nl')) return 'schadeautos';
   if (urlLower.includes('2dehands') || urlLower.includes('2ememain')) return '2dehands';
   if (urlLower.includes('kleinanzeigen') || urlLower.includes('ebay-kleinanzeigen')) return 'kleinanzeigen';
@@ -489,6 +505,21 @@ function detectSource(url: string): string {
   if (urlLower.includes('marktplaats.nl')) return 'marktplaats';
   if (urlLower.includes('autoscout24')) return 'autoscout24';
   return 'generic';
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = 2): Promise<Response | null> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) return response;
+    } catch (e) {
+      console.log(`Fetch attempt ${i + 1} failed:`, e);
+    }
+    if (i < retries) {
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -513,70 +544,107 @@ Deno.serve(async (req) => {
     const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY_1') || Deno.env.get('FIRECRAWL_API_KEY');
     
     let html = '';
+    let usedScreenshot = false;
     
-    // Always try Firecrawl first - it handles JavaScript rendering
+    // Try Firecrawl first with better options for anti-bot sites
     if (firecrawlKey) {
       try {
-        console.log('Using Firecrawl for scraping...');
+        console.log('Trying Firecrawl with enhanced settings...');
+        
+        // For mobile.de and similar protected sites, use screenshot + scrape
+        const firecrawlBody: Record<string, unknown> = {
+          url: listingUrl,
+          formats: ['html', 'rawHtml'],
+          waitFor: 8000,
+          timeout: 30000,
+        };
+        
+        // Add location settings for German sites
+        if (source === 'mobile.de' || source === 'kleinanzeigen' || source === 'autoscout24') {
+          firecrawlBody.location = {
+            country: 'DE',
+            languages: ['de']
+          };
+        }
+        
         const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${firecrawlKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            url: listingUrl,
-            formats: ['html', 'rawHtml'],
-            waitFor: 5000, // Wait longer for JS to load
-          }),
+          body: JSON.stringify(firecrawlBody),
         });
         
         if (firecrawlResponse.ok) {
           const firecrawlData = await firecrawlResponse.json();
           html = firecrawlData.data?.rawHtml || firecrawlData.data?.html || firecrawlData.rawHtml || firecrawlData.html || '';
-          console.log(`Firecrawl fetched ${html.length} bytes`);
+          
+          // Check if we got blocked
+          if (html.includes('Zugriff verweigert') || html.includes('Access Denied') || html.includes('captcha')) {
+            console.log('Firecrawl got blocked, trying alternative approach...');
+            html = '';
+          } else {
+            console.log(`Firecrawl fetched ${html.length} bytes`);
+          }
         } else {
-          const errorData = await firecrawlResponse.json();
-          console.log('Firecrawl failed:', errorData.error);
+          const errorData = await firecrawlResponse.json().catch(() => ({}));
+          console.log('Firecrawl failed:', errorData);
         }
       } catch (e) {
         console.log('Firecrawl error:', e);
       }
     }
     
-    // Fallback to direct fetch
+    // Fallback to direct fetch with various headers
     if (!html || html.length < 1000) {
-      console.log('Falling back to direct fetch...');
-      try {
-        const response = await fetch(listingUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5,nl;q=0.3,de;q=0.2',
-            'Cache-Control': 'no-cache',
-          },
-        });
+      console.log('Trying direct fetch with browser-like headers...');
+      
+      const userAgents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+      ];
+      
+      for (const ua of userAgents) {
+        try {
+          const response = await fetch(listingUrl, {
+            headers: {
+              'User-Agent': ua,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+              'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7,nl;q=0.6',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache',
+              'Sec-Fetch-Dest': 'document',
+              'Sec-Fetch-Mode': 'navigate',
+              'Sec-Fetch-Site': 'none',
+              'Sec-Fetch-User': '?1',
+              'Upgrade-Insecure-Requests': '1',
+            },
+          });
 
-        if (response.ok) {
-          const directHtml = await response.text();
-          if (directHtml.length > html.length) {
-            html = directHtml;
-            console.log(`Direct fetch got ${html.length} bytes`);
+          if (response.ok) {
+            const directHtml = await response.text();
+            
+            // Check if not blocked
+            if (!directHtml.includes('Zugriff verweigert') && 
+                !directHtml.includes('Access Denied') && 
+                !directHtml.includes('captcha')) {
+              if (directHtml.length > html.length) {
+                html = directHtml;
+                console.log(`Direct fetch got ${html.length} bytes`);
+                break;
+              }
+            }
           }
+        } catch (e) {
+          console.log('Direct fetch error:', e);
         }
-      } catch (e) {
-        console.log('Direct fetch error:', e);
       }
     }
 
-    if (!html || html.length < 500) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Failed to fetch page content' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Extract details
+    // Extract what we can even if blocked - for some sites the images are in the initial response
     const details = extractDetailsFromHtml(html, listingUrl);
     console.log('Extracted details:', details);
 
@@ -619,6 +687,19 @@ Deno.serve(async (req) => {
     const result = filterAndDedupeImages(allImages, listingUrl);
     
     console.log(`Final result: ${result.length} unique images`);
+
+    // If we still got no images and were blocked, return appropriate error
+    if (result.length === 0 && (html.includes('Zugriff verweigert') || html.includes('Access Denied'))) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Svetainė blokuoja prieigą. Pabandykite vėliau arba naudokite kitą nuorodą.',
+          blocked: true,
+          source 
+        }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     return new Response(
       JSON.stringify({ 
