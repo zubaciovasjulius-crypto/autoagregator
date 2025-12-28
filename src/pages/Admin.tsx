@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
-import { RefreshCw, Trash2, ArrowLeft, Loader2, Shield, Database, Users } from 'lucide-react';
+import { RefreshCw, Trash2, ArrowLeft, Loader2, Shield, Database, Users, Check, X } from 'lucide-react';
 import Header from '@/components/Header';
 
 interface ScrapeStatus {
@@ -34,6 +34,7 @@ interface UserProfile {
   id: string;
   email: string | null;
   created_at: string;
+  approved: boolean;
 }
 
 const Admin = () => {
@@ -76,7 +77,7 @@ const Admin = () => {
       const [statusRes, listingsRes, usersRes] = await Promise.all([
         supabase.from('scrape_status').select('*').order('source'),
         supabase.from('car_listings').select('id, title, brand, model, price, source, scraped_at').order('scraped_at', { ascending: false }).limit(50),
-        supabase.from('profiles').select('id, email, created_at').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('id, email, created_at, approved').order('created_at', { ascending: false }),
       ]);
 
       if (statusRes.data) setScrapeStatuses(statusRes.data);
@@ -141,6 +142,45 @@ const Admin = () => {
     } catch (error) {
       console.error('Clear error:', error);
       toast({ title: 'Klaida', description: 'Nepavyko išvalyti', variant: 'destructive' });
+    }
+  };
+
+  const handleApproveUser = async (userId: string, approve: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ approved: approve })
+        .eq('id', userId);
+      
+      if (error) throw error;
+      
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, approved: approve } : u));
+      toast({ 
+        title: approve ? 'Patvirtinta' : 'Atšaukta', 
+        description: approve ? 'Vartotojas patvirtintas' : 'Patvirtinimas atšauktas' 
+      });
+    } catch (error) {
+      console.error('Approve error:', error);
+      toast({ title: 'Klaida', description: 'Nepavyko atnaujinti', variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, email: string | null) => {
+    if (!confirm(`Ar tikrai norite ištrinti vartotoją ${email || userId}?`)) return;
+    
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', userId);
+      
+      if (error) throw error;
+      
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      toast({ title: 'Pašalinta', description: 'Vartotojas pašalintas' });
+    } catch (error) {
+      console.error('Delete user error:', error);
+      toast({ title: 'Klaida', description: 'Nepavyko pašalinti vartotojo', variant: 'destructive' });
     }
   };
 
@@ -303,19 +343,58 @@ const Admin = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>El. paštas</TableHead>
+                      <TableHead>Būsena</TableHead>
                       <TableHead>Registracijos data</TableHead>
-                      <TableHead>User ID</TableHead>
+                      <TableHead>Veiksmai</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.email || '-'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(user.created_at)}
+                    {users.map((userItem) => (
+                      <TableRow key={userItem.id}>
+                        <TableCell className="font-medium">{userItem.email || '-'}</TableCell>
+                        <TableCell>
+                          {userItem.approved ? (
+                            <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
+                              Patvirtintas
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-yellow-500/20 text-yellow-600 border-yellow-500/30">
+                              Laukia patvirtinimo
+                            </Badge>
+                          )}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground font-mono">
-                          {user.id.substring(0, 8)}...
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(userItem.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {!userItem.approved ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-600 hover:bg-green-500/10"
+                                onClick={() => handleApproveUser(userItem.id, true)}
+                              >
+                                <Check className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-yellow-600 hover:bg-yellow-500/10"
+                                onClick={() => handleApproveUser(userItem.id, false)}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeleteUser(userItem.id, userItem.email)}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
