@@ -342,25 +342,61 @@ Deno.serve(async (req) => {
 
     console.log(`Processing listing: ${listingUrl}`);
     
-    // Fetch the page
-    const response = await fetch(listingUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5,nl;q=0.3',
-        'Cache-Control': 'no-cache',
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch page: ${response.status}`);
-      return new Response(
-        JSON.stringify({ success: false, error: `Failed to fetch page: ${response.status}` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY_1') || Deno.env.get('FIRECRAWL_API_KEY');
+    
+    let html = '';
+    
+    // Try Firecrawl first for better JavaScript rendering
+    if (firecrawlKey) {
+      try {
+        console.log('Using Firecrawl for scraping...');
+        const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${firecrawlKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: listingUrl,
+            formats: ['html', 'links'],
+            waitFor: 3000,
+          }),
+        });
+        
+        if (firecrawlResponse.ok) {
+          const firecrawlData = await firecrawlResponse.json();
+          html = firecrawlData.data?.html || firecrawlData.html || '';
+          console.log(`Firecrawl fetched ${html.length} bytes`);
+        } else {
+          const errorData = await firecrawlResponse.json();
+          console.log('Firecrawl failed, falling back to direct fetch:', errorData.error);
+        }
+      } catch (e) {
+        console.log('Firecrawl error, falling back to direct fetch:', e);
+      }
     }
+    
+    // Fallback to direct fetch if Firecrawl didn't work
+    if (!html) {
+      const response = await fetch(listingUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5,nl;q=0.3',
+          'Cache-Control': 'no-cache',
+        },
+      });
 
-    const html = await response.text();
+      if (!response.ok) {
+        console.error(`Failed to fetch page: ${response.status}`);
+        return new Response(
+          JSON.stringify({ success: false, error: `Failed to fetch page: ${response.status}` }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      html = await response.text();
+    }
     console.log(`Fetched ${html.length} bytes`);
 
     // Extract details
