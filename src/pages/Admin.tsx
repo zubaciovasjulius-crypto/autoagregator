@@ -30,6 +30,12 @@ interface CarListing {
   scraped_at: string;
 }
 
+interface UserProfile {
+  id: string;
+  email: string | null;
+  created_at: string;
+}
+
 const Admin = () => {
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, loading: adminLoading } = useAdmin();
@@ -37,6 +43,7 @@ const Admin = () => {
   
   const [scrapeStatuses, setScrapeStatuses] = useState<ScrapeStatus[]>([]);
   const [listings, setListings] = useState<CarListing[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [loadingSource, setLoadingSource] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
 
@@ -66,13 +73,15 @@ const Admin = () => {
   const loadData = async () => {
     setIsLoadingData(true);
     try {
-      const [statusRes, listingsRes] = await Promise.all([
+      const [statusRes, listingsRes, usersRes] = await Promise.all([
         supabase.from('scrape_status').select('*').order('source'),
         supabase.from('car_listings').select('id, title, brand, model, price, source, scraped_at').order('scraped_at', { ascending: false }).limit(50),
+        supabase.from('profiles').select('id, email, created_at').order('created_at', { ascending: false }),
       ]);
 
       if (statusRes.data) setScrapeStatuses(statusRes.data);
       if (listingsRes.data) setListings(listingsRes.data);
+      if (usersRes.data) setUsers(usersRes.data);
     } catch (error) {
       console.error('Error loading admin data:', error);
     } finally {
@@ -271,6 +280,51 @@ const Admin = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Registered Users Card */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Registruoti vartotojai ({users.length})
+            </CardTitle>
+            <CardDescription>Visi prisiregistravę vartotojai</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingData ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin" />
+              </div>
+            ) : users.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">Nėra registruotų vartotojų</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>El. paštas</TableHead>
+                      <TableHead>Registracijos data</TableHead>
+                      <TableHead>User ID</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell className="font-medium">{user.email || '-'}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(user.created_at)}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground font-mono">
+                          {user.id.substring(0, 8)}...
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Listings Table */}
         <Card className="mt-6">
