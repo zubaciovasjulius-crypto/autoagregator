@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  isApproved: boolean;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -17,6 +18,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isApproved, setIsApproved] = useState(false);
+
+  const checkApprovalStatus = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('approved')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Error checking approval:', error);
+        return false;
+      }
+      
+      return data?.approved ?? false;
+    } catch (error) {
+      console.error('Error checking approval:', error);
+      return false;
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -27,6 +49,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (mounted) {
           setSession(session);
           setUser(session?.user ?? null);
+          
+          if (session?.user) {
+            const approved = await checkApprovalStatus(session.user.id);
+            setIsApproved(approved);
+          }
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
@@ -44,6 +71,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (mounted) {
           setSession(session);
           setUser(session?.user ?? null);
+          
+          // Check approval in background
+          if (session?.user) {
+            setTimeout(async () => {
+              const approved = await checkApprovalStatus(session.user.id);
+              if (mounted) setIsApproved(approved);
+            }, 0);
+          } else {
+            setIsApproved(false);
+          }
         }
       }
     );
@@ -67,19 +104,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    return { error };
+    
+    if (error) return { error };
+    
+    // Check if user is approved
+    if (data.user) {
+      const approved = await checkApprovalStatus(data.user.id);
+      
+      if (!approved) {
+        // Sign out if not approved
+        await supabase.auth.signOut();
+        return { 
+          error: new Error('Jūsų paskyra dar nepatvirtinta. Palaukite administratoriaus patvirtinimo.') 
+        };
+      }
+      
+      setIsApproved(true);
+    }
+    
+    return { error: null };
   };
 
   const signOut = async () => {
+    setIsApproved(false);
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, isApproved, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
