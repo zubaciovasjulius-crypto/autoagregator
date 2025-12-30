@@ -375,6 +375,57 @@ function extractAutoscout24Images(html: string): string[] {
   return images;
 }
 
+// Extract images only from .car-detail .content section
+function extractCarDetailContentImages(html: string): string[] {
+  const images: string[] = [];
+  
+  // Find .car-detail section first
+  const carDetailRegex = /<[^>]+class=["'][^"']*car-detail[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>\s*<(?:footer|header|nav)|$)/gi;
+  let carDetailMatch;
+  let carDetailHtml = '';
+  
+  while ((carDetailMatch = carDetailRegex.exec(html)) !== null) {
+    carDetailHtml += carDetailMatch[0];
+  }
+  
+  // If we found .car-detail, look for .content inside it
+  if (carDetailHtml) {
+    const contentRegex = /<[^>]+class=["'][^"']*\bcontent\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>|<\/section>|$)/gi;
+    let contentMatch;
+    let contentHtml = '';
+    
+    while ((contentMatch = contentRegex.exec(carDetailHtml)) !== null) {
+      contentHtml += contentMatch[0];
+    }
+    
+    // If we found .content, use that for image extraction
+    const targetHtml = contentHtml || carDetailHtml;
+    
+    // Extract images from img tags
+    const imgTagRegex = /<img[^>]+(?:src|data-src|data-lazy|data-original)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+    let match;
+    while ((match = imgTagRegex.exec(targetHtml)) !== null) {
+      images.push(match[1]);
+    }
+    
+    // Extract from data attributes
+    const dataPattern = /data-(?:src|image|original|lazy|full|zoom|large)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+    while ((match = dataPattern.exec(targetHtml)) !== null) {
+      images.push(match[1]);
+    }
+    
+    // Extract from background images
+    const bgPattern = /url\(['"]?(https?:\/\/[^'")\s]+\.(?:jpg|jpeg|png|webp)[^'")\s]*)['"]?\)/gi;
+    while ((match = bgPattern.exec(targetHtml)) !== null) {
+      images.push(match[1]);
+    }
+    
+    console.log(`Car-detail content: found ${images.length} images`);
+  }
+  
+  return images;
+}
+
 function extractGenericImages(html: string): string[] {
   const images: string[] = [];
   
@@ -677,9 +728,17 @@ Deno.serve(async (req) => {
         allImages = [];
     }
     
-    // Always add generic extraction as fallback
-    const genericImages = extractGenericImages(html);
-    allImages.push(...genericImages);
+    // First try to extract only from .car-detail .content section
+    const carDetailImages = extractCarDetailContentImages(html);
+    if (carDetailImages.length > 0) {
+      allImages.push(...carDetailImages);
+      console.log(`Using ${carDetailImages.length} images from .car-detail .content`);
+    } else {
+      // Fallback to generic extraction if no car-detail content found
+      const genericImages = extractGenericImages(html);
+      allImages.push(...genericImages);
+      console.log(`Fallback: using ${genericImages.length} generic images`);
+    }
     
     console.log(`Total raw images: ${allImages.length}`);
     
