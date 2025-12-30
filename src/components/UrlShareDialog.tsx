@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link2, MessageCircle, Instagram, Facebook, Loader2, ImageIcon, X, ChevronLeft, ChevronRight, Sparkles, Check } from 'lucide-react';
+import { Link2, MessageCircle, Instagram, Facebook, Loader2, ImageIcon, X, ChevronLeft, ChevronRight, Sparkles, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -403,27 +403,68 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
 
               {/* Image Gallery */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <label className="text-sm font-medium flex items-center gap-2">
                     <ImageIcon className="w-4 h-4" />
                     Nuotraukos ({selectedImages.size} pasirinkta iš {scrapedData.images.length})
                   </label>
-                  {selectedImages.size > 0 && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={handleRemoveAllWatermarks}
-                      disabled={isRemovingWatermark}
-                      className="gap-2"
-                    >
-                      {isRemovingWatermark ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-4 h-4" />
-                      )}
-                      Pašalinti vandens ženklus
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {selectedImages.size > 0 && (
+                      <>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => {
+                            // Remove selected images from scrapedData
+                            const newImages = scrapedData.images.filter((_, idx) => !selectedImages.has(idx));
+                            setScrapedData({ ...scrapedData, images: newImages });
+                            // Clear selection and cleaned images for removed indices
+                            setSelectedImages(new Set());
+                            setCleanedImages(new Map());
+                            toast({
+                              title: '🗑️ Pašalinta',
+                              description: `Pašalinta ${selectedImages.size} nuotraukų`,
+                            });
+                          }}
+                          className="gap-2 text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Pašalinti ({selectedImages.size})
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={handleRemoveAllWatermarks}
+                          disabled={isRemovingWatermark}
+                          className="gap-2"
+                        >
+                          {isRemovingWatermark ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-4 h-4" />
+                          )}
+                          Valyti ženklus
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Select/Deselect all buttons */}
+                <div className="flex gap-2 text-xs">
+                  <button 
+                    onClick={() => setSelectedImages(new Set(scrapedData.images.map((_, idx) => idx)))}
+                    className="text-primary hover:underline"
+                  >
+                    Pasirinkti visas
+                  </button>
+                  <span className="text-muted-foreground">|</span>
+                  <button 
+                    onClick={() => setSelectedImages(new Set())}
+                    className="text-muted-foreground hover:underline"
+                  >
+                    Atšaukti pasirinkimą
+                  </button>
                 </div>
                 
                 {/* Image grid - show all images */}
@@ -434,43 +475,74 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                     const displayUrl = cleanedImages.get(idx) || img;
                     
                     return (
-                      <button
-                        key={idx}
-                        onClick={() => toggleImageSelection(idx)}
-                        className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all ${
-                          isSelected 
-                            ? 'border-primary ring-2 ring-primary/30' 
-                            : 'border-transparent hover:border-muted-foreground/30'
-                        }`}
-                      >
-                        <img
-                          src={displayUrl}
-                          alt={`Nuotrauka ${idx + 1}`}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = '/placeholder.svg';
+                      <div key={idx} className="relative group">
+                        <button
+                          onClick={() => toggleImageSelection(idx)}
+                          className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all w-full ${
+                            isSelected 
+                              ? 'border-primary ring-2 ring-primary/30' 
+                              : 'border-transparent hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <img
+                            src={displayUrl}
+                            alt={`Nuotrauka ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/placeholder.svg';
+                            }}
+                          />
+                          
+                          {/* Selection indicator */}
+                          {isSelected && (
+                            <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
+                              <Check className="w-3 h-3 text-primary-foreground" />
+                            </div>
+                          )}
+                          
+                          {/* Cleaned indicator */}
+                          {isCleaned && (
+                            <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-green-500 rounded text-[10px] text-white font-medium">
+                              ✓ Clean
+                            </div>
+                          )}
+                          
+                          {/* Index number */}
+                          <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white">
+                            {idx + 1}
+                          </div>
+                        </button>
+                        
+                        {/* Remove single image button (visible on hover) */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newImages = [...scrapedData.images];
+                            newImages.splice(idx, 1);
+                            setScrapedData({ ...scrapedData, images: newImages });
+                            
+                            // Update selected images (shift indices)
+                            const newSelected = new Set<number>();
+                            selectedImages.forEach(i => {
+                              if (i < idx) newSelected.add(i);
+                              else if (i > idx) newSelected.add(i - 1);
+                            });
+                            setSelectedImages(newSelected);
+                            
+                            // Update cleaned images (shift indices)
+                            const newCleaned = new Map<number, string>();
+                            cleanedImages.forEach((url, i) => {
+                              if (i < idx) newCleaned.set(i, url);
+                              else if (i > idx) newCleaned.set(i - 1, url);
+                            });
+                            setCleanedImages(newCleaned);
                           }}
-                        />
-                        
-                        {/* Selection indicator */}
-                        {isSelected && (
-                          <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-                            <Check className="w-3 h-3 text-primary-foreground" />
-                          </div>
-                        )}
-                        
-                        {/* Cleaned indicator */}
-                        {isCleaned && (
-                          <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-green-500 rounded text-[10px] text-white font-medium">
-                            ✓ Clean
-                          </div>
-                        )}
-                        
-                        {/* Index number */}
-                        <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white">
-                          {idx + 1}
-                        </div>
-                      </button>
+                          className="absolute top-1 left-1 w-5 h-5 bg-destructive/80 hover:bg-destructive rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Pašalinti nuotrauką"
+                        >
+                          <X className="w-3 h-3 text-white" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
