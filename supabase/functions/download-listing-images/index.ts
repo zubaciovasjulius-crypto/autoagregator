@@ -375,52 +375,76 @@ function extractAutoscout24Images(html: string): string[] {
   return images;
 }
 
-// Extract images only from .car-detail .content section
-function extractCarDetailContentImages(html: string): string[] {
+// Extract images only from .col9.col12-sm.content section (schadeautos layout)
+function extractContentSectionImages(html: string): string[] {
   const images: string[] = [];
   
-  // Find .car-detail section first
-  const carDetailRegex = /<[^>]+class=["'][^"']*car-detail[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>\s*<(?:footer|header|nav)|$)/gi;
-  let carDetailMatch;
-  let carDetailHtml = '';
+  // Find div with class containing "col9" AND "col12-sm" AND "content"
+  // Pattern: class="col9 col12-sm content" or similar variations
+  const contentRegex = /<div[^>]+class=["'][^"']*\bcol9\b[^"']*\bcol12-sm\b[^"']*\bcontent\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<div[^>]+class=["'][^"']*\bcol|<\/section>|<footer|$)/gi;
   
-  while ((carDetailMatch = carDetailRegex.exec(html)) !== null) {
-    carDetailHtml += carDetailMatch[0];
+  // Also try alternative order: content col9 col12-sm
+  const contentRegex2 = /<div[^>]+class=["'][^"']*\bcontent\b[^"']*\bcol9\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<div[^>]+class=["'][^"']*\bcol|<\/section>|<footer|$)/gi;
+  
+  let contentMatch;
+  let contentHtml = '';
+  
+  while ((contentMatch = contentRegex.exec(html)) !== null) {
+    contentHtml += contentMatch[0];
   }
   
-  // If we found .car-detail, look for .content inside it
-  if (carDetailHtml) {
-    const contentRegex = /<[^>]+class=["'][^"']*\bcontent\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>|<\/section>|$)/gi;
-    let contentMatch;
-    let contentHtml = '';
-    
-    while ((contentMatch = contentRegex.exec(carDetailHtml)) !== null) {
+  // Try alternative pattern if first didn't match
+  if (!contentHtml) {
+    while ((contentMatch = contentRegex2.exec(html)) !== null) {
       contentHtml += contentMatch[0];
     }
-    
-    // If we found .content, use that for image extraction
-    const targetHtml = contentHtml || carDetailHtml;
+  }
+  
+  // If still no match, try simpler pattern for just "content" class within a col structure
+  if (!contentHtml) {
+    const simpleContentRegex = /<div[^>]+class=["'][^"']*\bcontent\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>\s*<\/div>|<footer|$)/gi;
+    while ((contentMatch = simpleContentRegex.exec(html)) !== null) {
+      contentHtml += contentMatch[0];
+    }
+  }
+  
+  if (contentHtml) {
+    console.log(`Found content section: ${contentHtml.length} chars`);
     
     // Extract images from img tags
     const imgTagRegex = /<img[^>]+(?:src|data-src|data-lazy|data-original)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
     let match;
-    while ((match = imgTagRegex.exec(targetHtml)) !== null) {
+    while ((match = imgTagRegex.exec(contentHtml)) !== null) {
       images.push(match[1]);
     }
     
     // Extract from data attributes
     const dataPattern = /data-(?:src|image|original|lazy|full|zoom|large)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-    while ((match = dataPattern.exec(targetHtml)) !== null) {
+    while ((match = dataPattern.exec(contentHtml)) !== null) {
       images.push(match[1]);
     }
     
     // Extract from background images
     const bgPattern = /url\(['"]?(https?:\/\/[^'")\s]+\.(?:jpg|jpeg|png|webp)[^'")\s]*)['"]?\)/gi;
-    while ((match = bgPattern.exec(targetHtml)) !== null) {
+    while ((match = bgPattern.exec(contentHtml)) !== null) {
       images.push(match[1]);
     }
     
-    console.log(`Car-detail content: found ${images.length} images`);
+    // Extract from srcset attributes
+    const srcsetPattern = /srcset=["']([^"']+)["']/gi;
+    while ((match = srcsetPattern.exec(contentHtml)) !== null) {
+      const srcsetValue = match[1];
+      const srcsetUrls = srcsetValue.split(',').map(s => s.trim().split(/\s+/)[0]);
+      for (const url of srcsetUrls) {
+        if (url.match(/https?:\/\/.*\.(jpg|jpeg|png|webp)/i)) {
+          images.push(url);
+        }
+      }
+    }
+    
+    console.log(`Content section: found ${images.length} images`);
+  } else {
+    console.log('Content section not found');
   }
   
   return images;
@@ -728,13 +752,13 @@ Deno.serve(async (req) => {
         allImages = [];
     }
     
-    // First try to extract only from .car-detail .content section
-    const carDetailImages = extractCarDetailContentImages(html);
-    if (carDetailImages.length > 0) {
-      allImages.push(...carDetailImages);
-      console.log(`Using ${carDetailImages.length} images from .car-detail .content`);
+    // First try to extract only from .col9.col12-sm.content section
+    const contentImages = extractContentSectionImages(html);
+    if (contentImages.length > 0) {
+      allImages.push(...contentImages);
+      console.log(`Using ${contentImages.length} images from .content section`);
     } else {
-      // Fallback to generic extraction if no car-detail content found
+      // Fallback to generic extraction if no content section found
       const genericImages = extractGenericImages(html);
       allImages.push(...genericImages);
       console.log(`Fallback: using ${genericImages.length} generic images`);
