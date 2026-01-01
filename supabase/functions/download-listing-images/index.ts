@@ -56,20 +56,87 @@ function extractBrandFromTitle(title: string): { brand: string; model: string } 
 function extractDetailsFromHtml(html: string, url: string): ScrapedData['details'] {
   const details: ScrapedData['details'] = {};
   
-  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-  const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const h1Tag = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  // Detect source for source-specific extraction
+  const isTheParking = url.includes('theparking.eu') || url.includes('leparking');
+  const isSchadeautos = url.includes('schadeautos.nl');
+  const isAutoscout = url.includes('autoscout24');
+  const isMobileDe = url.includes('mobile.de');
   
-  details.title = ogTitle?.[1] || h1Tag?.[1] || titleTag?.[1] || '';
-  details.title = details.title.trim();
-  
-  // Skip if we got access denied page
-  if (details.title.toLowerCase().includes('zugriff verweigert') || 
-      details.title.toLowerCase().includes('access denied') ||
-      details.title.toLowerCase().includes('captcha')) {
-    details.title = '';
+  // === TITLE EXTRACTION ===
+  // For theparking.eu, extract from specific elements (not og:title which is generic share text)
+  if (isTheParking) {
+    // Try main heading with car info
+    const mainHeading = html.match(/<h1[^>]*class=["'][^"']*title[^"']*["'][^>]*>([^<]+)<\/h1>/i);
+    const carTitle = html.match(/<span[^>]*class=["'][^"']*car-title[^"']*["'][^>]*>([^<]+)<\/span>/i);
+    const breadcrumb = html.match(/<h1[^>]*>[\s\S]*?([A-Z][a-zA-Z]+(?:\s+[A-Za-z0-9-]+){1,5})[\s\S]*?<\/h1>/i);
+    
+    // Extract from URL pattern: /used-cars-detail/brand-model/...
+    const urlMatch = url.match(/used-cars-detail\/([^\/]+)\//i);
+    if (urlMatch) {
+      const brandModel = urlMatch[1].replace(/-/g, ' ').toUpperCase();
+      details.title = brandModel;
+    }
+    
+    // Override with actual page title if found
+    if (mainHeading?.[1]) {
+      details.title = mainHeading[1].trim();
+    } else if (carTitle?.[1]) {
+      details.title = carTitle[1].trim();
+    }
+    
+    // Try to get better title from JSON-LD
+    const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+    if (jsonLdMatch) {
+      for (const jsonScript of jsonLdMatch) {
+        try {
+          const jsonContent = jsonScript.replace(/<script[^>]*>|<\/script>/gi, '');
+          const json = JSON.parse(jsonContent);
+          if (json['@type'] === 'Product' || json['@type'] === 'Vehicle' || json['@type'] === 'Car') {
+            if (json.name && !json.name.toLowerCase().includes('found this listing')) {
+              details.title = json.name;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+  } else {
+    // Standard extraction for other sites
+    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const h1Tag = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    
+    // Prefer h1 or title tag over og:title (which is often generic sharing text)
+    details.title = h1Tag?.[1] || titleTag?.[1] || ogTitle?.[1] || '';
   }
   
+  details.title = details.title?.trim() || '';
+  
+  // Clean up HTML entities
+  details.title = details.title
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&euro;/gi, '€')
+    .replace(/&#\d+;/g, '')
+    .trim();
+  
+  // Skip if we got access denied page or generic sharing text
+  const badTitles = [
+    'zugriff verweigert', 'access denied', 'captcha',
+    'i found this listing', 'isn\'t it great', 'theparking'
+  ];
+  if (badTitles.some(bad => details.title?.toLowerCase().includes(bad))) {
+    // Try URL extraction as fallback
+    const urlMatch = url.match(/used-cars-detail\/([^\/]+)\//i) || 
+                     url.match(/\/([a-z]+-[a-z0-9-]+)\//i);
+    if (urlMatch) {
+      details.title = urlMatch[1].replace(/-/g, ' ').toUpperCase();
+    } else {
+      details.title = '';
+    }
+  }
+  
+  // === BRAND & MODEL EXTRACTION ===
   if (details.title) {
     const brandModel = extractBrandFromTitle(details.title);
     if (brandModel) {
@@ -78,55 +145,98 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
     }
   }
   
+  // === YEAR EXTRACTION ===
+  // TheParking has year in specific format
   const yearPatterns = [
+    // Specific formats first
     /["']?year["']?\s*[:=]\s*["']?(\d{4})["']?/i,
+    /Erstzulassung[:\s]*(?:\d{2}\/)?(\d{4})/i,
+    /Baujahr[:\s]*(\d{4})/i,
+    /Anno[:\s]*(\d{4})/i,
+    /Bouwjaar[:\s]*(\d{4})/i,
     /(\d{4})\s*(?:m\.|metai|jaar|year|bj)/i,
-    /Erstzulassung[:\s]*(\d{2})\/(\d{4})/i,
-    /\b(20[0-2][0-9])\b/,
-    /\b(19[9][0-9])\b/,
+    // Look for year in listing details section
+    /<(?:span|td|div)[^>]*>[\s\S]*?(\d{4})[\s\S]*?<\/(?:span|td|div)>/i,
   ];
+  
   for (const pattern of yearPatterns) {
     const match = html.match(pattern);
     if (match) {
-      const year = match[2] ? parseInt(match[2]) : parseInt(match[1]);
-      if (year >= 1990 && year <= 2025) {
+      const year = parseInt(match[1]);
+      if (year >= 1990 && year <= 2026) {
         details.year = year.toString();
         break;
       }
     }
   }
   
-  const mileagePatterns = [
-    /["']?(?:mileage|km|rida|kilometerstand)["']?\s*[:=]\s*["']?([\d.,]+)["']?/i,
-    /([\d.,]{2,7})\s*km\b/i,
-    /\b([\d]{2,3}[.,]?\d{3})\s*(?:km|kilometers)/i,
-  ];
-  for (const pattern of mileagePatterns) {
-    const match = html.match(pattern);
-    if (match) {
-      details.mileage = match[1].replace(/[.,]/g, '');
-      break;
+  // If no year found, try to extract from broader context
+  if (!details.year) {
+    // Look for 4-digit year that makes sense for a car
+    const allYears = html.match(/\b(20[0-2]\d|19[9]\d)\b/g) || [];
+    const yearCounts: Record<string, number> = {};
+    for (const y of allYears) {
+      const yr = parseInt(y);
+      if (yr >= 1995 && yr <= 2025) {
+        yearCounts[y] = (yearCounts[y] || 0) + 1;
+      }
+    }
+    // Pick the most common year (likely the listing year)
+    const sortedYears = Object.entries(yearCounts).sort((a, b) => b[1] - a[1]);
+    if (sortedYears.length > 0) {
+      details.year = sortedYears[0][0];
     }
   }
   
-  const pricePatterns = [
-    /["']?price["']?\s*[:=]\s*["']?([\d.,]+)["']?/i,
-    /€\s*([\d.,]+)/i,
-    /([\d.,]+)\s*€/i,
-    /EUR\s*([\d.,]+)/i,
+  // === MILEAGE EXTRACTION ===
+  const mileagePatterns = [
+    /["']?(?:mileage|kilometers?|km[-_]?stand|kilometerstand|rida)["']?\s*[:=]\s*["']?([\d.,\s]+)\s*(?:km)?["']?/i,
+    /(\d{1,3}(?:[.,\s]\d{3})+)\s*km\b/i,
+    /([\d]{2,6})\s*km\b/i,
+    /km[:\s]*([\d.,\s]+)/i,
   ];
-  for (const pattern of pricePatterns) {
+  
+  for (const pattern of mileagePatterns) {
     const match = html.match(pattern);
     if (match) {
-      const priceStr = match[1].replace(/[.,]/g, '');
-      const price = parseInt(priceStr);
-      if (price > 100 && price < 1000000) {
-        details.price = priceStr;
+      const mileageStr = match[1].replace(/[\s.,]/g, '');
+      const mileage = parseInt(mileageStr);
+      // Valid mileage range (100 to 999999 km)
+      if (mileage >= 100 && mileage < 1000000) {
+        details.mileage = mileage.toString();
         break;
       }
     }
   }
   
+  // === PRICE EXTRACTION ===
+  const pricePatterns = [
+    // Structured data
+    /"price"\s*:\s*["']?([\d.,]+)["']?/i,
+    /"offers"\s*:\s*\{[^}]*"price"\s*:\s*["']?([\d.,]+)["']?/i,
+    // Euro formats
+    /€\s*([\d.,\s]+)/,
+    /([\d.,\s]+)\s*€/,
+    /EUR\s*([\d.,\s]+)/i,
+    /([\d.,\s]+)\s*EUR\b/i,
+    // Price labels
+    /(?:prix|preis|prijs|price)[:\s]*([\d.,\s]+)\s*€?/i,
+  ];
+  
+  for (const pattern of pricePatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      const priceStr = match[1].replace(/[\s.,]/g, '');
+      const price = parseInt(priceStr);
+      // Valid price range for cars
+      if (price >= 500 && price < 500000) {
+        details.price = price.toString();
+        break;
+      }
+    }
+  }
+  
+  console.log('Extracted details from URL:', url.substring(0, 50), details);
   return details;
 }
 
