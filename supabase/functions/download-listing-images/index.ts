@@ -189,22 +189,50 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
   }
   
   // === MILEAGE EXTRACTION ===
-  const mileagePatterns = [
-    /["']?(?:mileage|kilometers?|km[-_]?stand|kilometerstand|rida)["']?\s*[:=]\s*["']?([\d.,\s]+)\s*(?:km)?["']?/i,
-    /(\d{1,3}(?:[.,\s]\d{3})+)\s*km\b/i,
-    /([\d]{2,6})\s*km\b/i,
-    /km[:\s]*([\d.,\s]+)/i,
-  ];
-  
-  for (const pattern of mileagePatterns) {
-    const match = html.match(pattern);
-    if (match) {
-      const mileageStr = match[1].replace(/[\s.,]/g, '');
+  // TheParking uses: <span>Kilometer</span><span>112,000</span>
+  // First try to find specific HTML patterns for TheParking
+  if (isTheParking) {
+    const theParkingMileage = html.match(/<span>Kilometer<\/span>\s*<span>([\d,.\s]+)<\/span>/i);
+    if (theParkingMileage) {
+      const mileageStr = theParkingMileage[1].replace(/[\s.,]/g, '');
       const mileage = parseInt(mileageStr);
-      // Valid mileage range (100 to 999999 km)
       if (mileage >= 100 && mileage < 1000000) {
         details.mileage = mileage.toString();
-        break;
+      }
+    }
+  }
+  
+  // Also try: <li class="info-bloc-item"><span>Kilometer</span><span>112,000</span></li>
+  if (!details.mileage) {
+    const infoBlocMileage = html.match(/(?:Kilometer|Kilometerstand|km|Mileage|rida)[^<]*<\/span>\s*<span[^>]*>([\d,.\s]+)/i);
+    if (infoBlocMileage) {
+      const mileageStr = infoBlocMileage[1].replace(/[\s.,]/g, '');
+      const mileage = parseInt(mileageStr);
+      if (mileage >= 100 && mileage < 1000000) {
+        details.mileage = mileage.toString();
+      }
+    }
+  }
+  
+  // Generic mileage patterns as fallback
+  if (!details.mileage) {
+    const mileagePatterns = [
+      /["']?(?:mileage|kilometers?|km[-_]?stand|kilometerstand|rida)["']?\s*[:=]\s*["']?([\d.,\s]+)\s*(?:km)?["']?/i,
+      /(\d{1,3}(?:[.,\s]\d{3})+)\s*km\b/i,
+      /([\d]{2,6})\s*km\b/i,
+      /km[:\s]*([\d.,\s]+)/i,
+    ];
+    
+    for (const pattern of mileagePatterns) {
+      const match = html.match(pattern);
+      if (match) {
+        const mileageStr = match[1].replace(/[\s.,]/g, '');
+        const mileage = parseInt(mileageStr);
+        // Valid mileage range (100 to 999999 km)
+        if (mileage >= 100 && mileage < 1000000) {
+          details.mileage = mileage.toString();
+          break;
+        }
       }
     }
   }
