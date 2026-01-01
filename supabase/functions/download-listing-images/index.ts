@@ -235,6 +235,53 @@ function extractSchadeautosImages(html: string, listingUrl: string): string[] {
   return images;
 }
 
+function extractTheParkingImages(html: string, listingUrl: string): string[] {
+  const images: string[] = [];
+  
+  // Extract listing ID from theparking URLs (format: _XXXXXXXXXX.jpg where X is 10 digits)
+  // Find all listing IDs in the HTML to identify the main listing
+  const urlListingIdMatch = listingUrl.match(/tref="(\d{10,})[-"]/) || 
+                           html.match(/tref="(\d{10,})[-"]/);
+  
+  // Also try to extract from image URLs on the page
+  const mainImageMatch = html.match(/cloud\.leparking\.fr\/[^"']*_(\d{10,})\.jpg/);
+  const listingId = urlListingIdMatch?.[1] || mainImageMatch?.[1] || '';
+  
+  console.log(`TheParking listing ID: ${listingId}`);
+  
+  // Only extract images from cloud.leparking.fr with this listing ID
+  if (listingId) {
+    const pattern = new RegExp(`https://[^"'\\s]*cloud\\.leparking\\.fr[^"'\\s]*_${listingId}\\.jpg`, 'gi');
+    const matches = html.match(pattern) || [];
+    images.push(...matches);
+    
+    // Also check for scalethumb versions
+    const scalethumbPattern = new RegExp(`https://scalethumb\\.leparking\\.fr[^"'\\s]*_${listingId}\\.jpg`, 'gi');
+    const scalethumbMatches = html.match(scalethumbPattern) || [];
+    images.push(...scalethumbMatches);
+  }
+  
+  // Fallback: extract main listing image from the detail page structure
+  const mainFigurePattern = /<div class="figure"[^>]*>[\s\S]*?<img[^>]+src=["']([^"']+cloud\.leparking\.fr[^"']+)["']/gi;
+  let match;
+  while ((match = mainFigurePattern.exec(html)) !== null) {
+    if (!listingId || match[1].includes(listingId)) {
+      images.push(match[1]);
+    }
+  }
+  
+  // Extract from picture/source tags
+  const sourcePattern = /<source[^>]+srcset=["']([^"']+cloud\.leparking\.fr[^"']+)["']/gi;
+  while ((match = sourcePattern.exec(html)) !== null) {
+    if (!listingId || match[1].includes(listingId)) {
+      images.push(match[1]);
+    }
+  }
+  
+  console.log(`TheParking: found ${images.length} listing images`);
+  return images;
+}
+
 function extract2dehandsImages(html: string): string[] {
   const images: string[] = [];
   
@@ -244,7 +291,6 @@ function extract2dehandsImages(html: string): string[] {
     /https:\/\/[^"'\s]*2ememain[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
     /https:\/\/[^"'\s]*lbthumbs[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
     /https:\/\/[^"'\s]*marktplaats[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*cloud\.leparking[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
   ];
   
   for (const pattern of patterns) {
@@ -509,16 +555,36 @@ function extractGenericImages(html: string): string[] {
 
 function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
   const excludePatterns = [
+    // Generic exclusions
     /logo/i, /icon/i, /flag/i, /avatar/i, /placeholder/i, /blank/i,
     /spinner/i, /loading/i, /banner/i, /ad[-_]/i, /\/ads\//i,
     /favicon/i, /button/i, /arrow/i, /social/i, /share/i,
     /facebook|twitter|instagram|linkedin|youtube|whatsapp/i,
     /1x1|pixel|tracking/i, /badge/i, /rating/i, /star/i,
     /sprite/i, /thumb_\d+x\d+/i, /\/s\/\d+x\d+\//i,
-    /\/gfx\//i, // Exclude schadeautos /gfx/ folder (icons, decorative images)
-    /visual\/SA2-/i, // Exclude schadeautos visual decorations
-    /build-year\.png/i, /distance\.png/i, // Exclude specific schadeautos icons
+    
+    // Schadeautos exclusions
+    /\/gfx\//i,
+    /visual\/SA2-/i,
+    /build-year\.png/i, /distance\.png/i,
+    
+    // TheParking exclusions - UI elements and similar listings
+    /\/images\/home\.(png|webp)/i,
+    /\/images\/id_categorie/i,
+    /\/images\/camera-solid/i,
+    /modele\.leparking\.fr/i, // Sample/example cars, NOT the actual listing
+    /carvertical\.postaffiliatepro/i, // Affiliate banners
+    /postaffiliatepro/i,
+    
+    // Generic site assets
+    /\/assets\//i,
+    /\/static\//i,
+    /\.gif$/i, // GIF flags and icons
   ];
+  
+  // Extract listing ID from URL if possible (for theparking)
+  const listingIdMatch = sourceUrl.match(/_(\d{10,})\./);
+  const listingId = listingIdMatch?.[1] || '';
   
   // Size preference patterns
   const sizePatterns = [
@@ -543,10 +609,17 @@ function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
       .replace(/\/cache\/picture\/\d+\//g, '/cache/picture/X/')
       .replace(/~v\d+/g, '')
       .replace(/\?.*$/, '')
+      .replace(/\/unsafe\/\d+x\d+\//g, '/unsafe/SIZE/')
       .replace(/(https?:\/\/[^/]+).*?([a-f0-9]{8,}).*$/i, '$1...$2');
   };
   
-  const seen = new Map<string, { url: string; size: number }>();
+  // For theparking listings, prefer images that contain the listing ID
+  const isListingImage = (url: string): boolean => {
+    if (!listingId) return true;
+    return url.includes(listingId);
+  };
+  
+  const seen = new Map<string, { url: string; size: number; isListing: boolean }>();
   
   for (const img of images) {
     if (!img || !img.startsWith('http')) continue;
@@ -566,25 +639,33 @@ function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
     
     const normalizedKey = normalizeUrl(img);
     const size = getImageSize(img);
+    const isListing = isListingImage(img);
     const existing = seen.get(normalizedKey);
     
-    if (!existing || size > existing.size) {
-      seen.set(normalizedKey, { url: img, size });
+    // Prefer listing images over non-listing images
+    if (!existing || 
+        (isListing && !existing.isListing) || 
+        (isListing === existing.isListing && size > existing.size)) {
+      seen.set(normalizedKey, { url: img, size, isListing });
     }
   }
   
-  // Sort by size (largest first) and return
+  // Sort: listing images first, then by size
   const result = Array.from(seen.values())
-    .sort((a, b) => b.size - a.size)
+    .sort((a, b) => {
+      if (a.isListing !== b.isListing) return a.isListing ? -1 : 1;
+      return b.size - a.size;
+    })
     .map(item => item.url)
     .slice(0, 50);
   
-  console.log(`Filtered to ${result.length} unique images`);
+  console.log(`Filtered to ${result.length} unique images (listing images prioritized)`);
   return result;
 }
 
 function detectSource(url: string): string {
   const urlLower = url.toLowerCase();
+  if (urlLower.includes('theparking') || urlLower.includes('leparking') || urlLower.includes('dasparking') || urlLower.includes('ilparking') || urlLower.includes('el-parking') || urlLower.includes('oparking')) return 'theparking';
   if (urlLower.includes('mobile.de') || urlLower.includes('suchen.mobile.de')) return 'mobile.de';
   if (urlLower.includes('schadeautos.nl')) return 'schadeautos';
   if (urlLower.includes('2dehands') || urlLower.includes('2ememain')) return '2dehands';
@@ -740,6 +821,9 @@ Deno.serve(async (req) => {
     let allImages: string[] = [];
     
     switch (source) {
+      case 'theparking':
+        allImages = extractTheParkingImages(html, listingUrl);
+        break;
       case 'mobile.de':
         allImages = extractMobileDeImages(html);
         break;
