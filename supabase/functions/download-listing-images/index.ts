@@ -879,19 +879,24 @@ Deno.serve(async (req) => {
        html.includes('Buy Damaged Cars') ||
        (details.title?.includes('Schadeautos') && !listingUrl.includes(details.title)));
     
-    if (result.length === 0 && (isBlocked || isSchadeautosHomePage)) {
-      const errorMessage = isSchadeautosHomePage 
-        ? 'Schadeautos.nl blokuoja prieigą. Šis portalas nepalaikomas.'
-        : 'Svetainė blokuoja prieigą. Pabandykite vėliau arba naudokite kitą nuorodą.';
+    // If blocked or no images found, return empty array gracefully instead of error
+    // This allows the UI to continue working
+    if (result.length === 0) {
+      const wasBlocked = isBlocked || isSchadeautosHomePage;
+      console.log(`No images found. Blocked: ${wasBlocked}, Source: ${source}`);
       
       return new Response(
         JSON.stringify({ 
-          success: false, 
-          error: errorMessage,
-          blocked: true,
-          source 
+          success: true, 
+          images: [],
+          details,
+          source,
+          count: 0,
+          warning: wasBlocked 
+            ? 'Šis portalas blokuoja scrapinimą. Nuotraukų nepavyko gauti.'
+            : 'Nuotraukų nerasta šiame puslapyje.'
         }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
