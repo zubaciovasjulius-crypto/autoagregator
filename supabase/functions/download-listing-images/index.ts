@@ -185,43 +185,53 @@ function extractMobileDeImages(html: string): string[] {
 function extractSchadeautosImages(html: string, listingUrl: string): string[] {
   const images: string[] = [];
   
-  // Extract listing ID
-  const listingIdMatch = listingUrl.match(/\/o\/(\d+)/);
+  // Extract listing ID from URL - schadeautos uses numeric ID at end
+  // Examples: /voertuig/audi-a3-sportback/53813 or /o/53813
+  const listingIdMatch = listingUrl.match(/\/(\d+)\/?(?:\?|$)/);
   const listingId = listingIdMatch?.[1] || '';
   
-  // Direct image URLs
-  const patterns = [
-    /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[a-f0-9~v\.]+\.jpg/gi,
-    /https:\/\/[^"'\s]*schadeautos[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
+  console.log(`Schadeautos listing ID: ${listingId}`);
   
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-  }
+  // Only look for /cache/picture/ URLs - these are the actual listing photos
+  // Pattern: /cache/picture/{size}/{listingId}/{hash}~v{timestamp}.jpg
+  const cachePattern = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/(\d+)\/(\d+)\/([a-f0-9]+)(?:~v\d+)?\.jpg/gi;
+  let match;
+  const foundImages = new Map<string, { url: string; size: number }>();
   
-  // Find all unique hashes
-  if (listingId) {
-    const hashPattern = new RegExp(`/cache/picture/\\d+/${listingId}/([a-f0-9]+)(?:~v\\d+)?\\.jpg`, 'gi');
-    const foundHashes = new Set<string>();
-    let hashMatch;
-    while ((hashMatch = hashPattern.exec(html)) !== null) {
-      foundHashes.add(hashMatch[1]);
+  while ((match = cachePattern.exec(html)) !== null) {
+    const [fullUrl, size, imgListingId, hash] = match;
+    
+    // Skip if this is a different listing's image (from recommendations etc)
+    if (listingId && imgListingId !== listingId) {
+      continue;
     }
     
-    for (const hash of foundHashes) {
-      images.push(`https://www.schadeautos.nl/cache/picture/1200/${listingId}/${hash}.jpg`);
+    // Create high-res version URL
+    const highResUrl = `https://www.schadeautos.nl/cache/picture/1200/${imgListingId}/${hash}.jpg`;
+    const sizeNum = parseInt(size);
+    
+    // Store by hash, prefer larger size
+    const existing = foundImages.get(hash);
+    if (!existing || sizeNum > existing.size) {
+      foundImages.set(hash, { url: highResUrl, size: 1200 });
     }
   }
   
-  // Data attributes
-  const dataPattern = /data-(?:src|image|large|zoom|original)=["']([^"']+schadeautos[^"']+\.jpg)["']/gi;
-  let match;
-  while ((match = dataPattern.exec(html)) !== null) {
-    images.push(match[1]);
+  // Get unique high-res URLs
+  for (const { url } of foundImages.values()) {
+    images.push(url);
   }
   
-  console.log(`Schadeautos: found ${images.length} images`);
+  // Also check data attributes for zoomed images
+  const dataPattern = /data-(?:zoom|large|original|full)=["'](https:\/\/www\.schadeautos\.nl\/cache\/picture[^"']+)["']/gi;
+  while ((match = dataPattern.exec(html)) !== null) {
+    const url = match[1];
+    if (!images.includes(url) && (!listingId || url.includes(`/${listingId}/`))) {
+      images.push(url);
+    }
+  }
+  
+  console.log(`Schadeautos: found ${images.length} listing images`);
   return images;
 }
 
@@ -505,6 +515,9 @@ function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
     /facebook|twitter|instagram|linkedin|youtube|whatsapp/i,
     /1x1|pixel|tracking/i, /badge/i, /rating/i, /star/i,
     /sprite/i, /thumb_\d+x\d+/i, /\/s\/\d+x\d+\//i,
+    /\/gfx\//i, // Exclude schadeautos /gfx/ folder (icons, decorative images)
+    /visual\/SA2-/i, // Exclude schadeautos visual decorations
+    /build-year\.png/i, /distance\.png/i, // Exclude specific schadeautos icons
   ];
   
   // Size preference patterns
@@ -771,12 +784,26 @@ Deno.serve(async (req) => {
     
     console.log(`Final result: ${result.length} unique images`);
 
-    // If we still got no images and were blocked, return appropriate error
-    if (result.length === 0 && (html.includes('Zugriff verweigert') || html.includes('Access Denied'))) {
+    // Check for various blocking scenarios
+    const isBlocked = html.includes('Zugriff verweigert') || 
+                      html.includes('Access Denied') ||
+                      html.includes('captcha');
+    
+    // Check if schadeautos redirected to home page (they block scrapers this way)
+    const isSchadeautosHomePage = source === 'schadeautos' && 
+      (html.includes('<body class="home') || 
+       html.includes('Buy Damaged Cars') ||
+       (details.title?.includes('Schadeautos') && !listingUrl.includes(details.title)));
+    
+    if (result.length === 0 && (isBlocked || isSchadeautosHomePage)) {
+      const errorMessage = isSchadeautosHomePage 
+        ? 'Schadeautos.nl blokuoja prieigą. Šis portalas nepalaikomas.'
+        : 'Svetainė blokuoja prieigą. Pabandykite vėliau arba naudokite kitą nuorodą.';
+      
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Svetainė blokuoja prieigą. Pabandykite vėliau arba naudokite kitą nuorodą.',
+          error: errorMessage,
           blocked: true,
           source 
         }),
