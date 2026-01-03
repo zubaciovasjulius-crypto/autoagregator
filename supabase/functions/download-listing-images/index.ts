@@ -12,18 +12,32 @@ interface ScrapedData {
     mileage?: string;
     price?: string;
     title?: string;
+    fuel?: string;
+    country?: string;
   };
 }
 
 // Known car brands for extraction
 const CAR_BRANDS = [
-  'AUDI', 'BMW', 'MERCEDES', 'VOLKSWAGEN', 'VW', 'TOYOTA', 'HONDA', 'FORD', 'CHEVROLET',
-  'NISSAN', 'HYUNDAI', 'KIA', 'MAZDA', 'SUBARU', 'LEXUS', 'VOLVO', 'PORSCHE', 'JAGUAR',
-  'LAND ROVER', 'RANGE ROVER', 'MINI', 'FIAT', 'ALFA ROMEO', 'PEUGEOT', 'CITROEN', 'RENAULT',
-  'OPEL', 'SEAT', 'SKODA', 'SUZUKI', 'MITSUBISHI', 'JEEP', 'DODGE', 'CHRYSLER', 'CADILLAC',
-  'TESLA', 'FERRARI', 'LAMBORGHINI', 'MASERATI', 'ASTON MARTIN', 'BENTLEY', 'ROLLS ROYCE',
-  'DACIA', 'LANCIA', 'SAAB', 'INFINITI', 'ACURA', 'GENESIS', 'CUPRA', 'DS', 'SMART'
+  'ABARTH', 'ACURA', 'ALFA ROMEO', 'ASTON MARTIN', 'AUDI', 'BENTLEY', 'BMW', 
+  'BUGATTI', 'BUICK', 'CADILLAC', 'CHEVROLET', 'CHRYSLER', 'CITROEN', 'CUPRA',
+  'DACIA', 'DAEWOO', 'DAIHATSU', 'DODGE', 'DS', 'FERRARI', 'FIAT', 'FORD',
+  'GENESIS', 'GMC', 'HONDA', 'HUMMER', 'HYUNDAI', 'INFINITI', 'ISUZU', 'IVECO',
+  'JAGUAR', 'JEEP', 'KIA', 'KOENIGSEGG', 'LADA', 'LAMBORGHINI', 'LANCIA', 
+  'LAND ROVER', 'LEXUS', 'LINCOLN', 'LOTUS', 'MASERATI', 'MAYBACH', 'MAZDA',
+  'MCLAREN', 'MERCEDES', 'MERCEDES-BENZ', 'MINI', 'MITSUBISHI', 'NISSAN', 
+  'OPEL', 'PAGANI', 'PEUGEOT', 'PLYMOUTH', 'POLESTAR', 'PONTIAC', 'PORSCHE',
+  'RAM', 'RANGE ROVER', 'RENAULT', 'ROLLS ROYCE', 'ROLLS-ROYCE', 'SAAB', 'SEAT',
+  'SKODA', 'SMART', 'SSANGYONG', 'SUBARU', 'SUZUKI', 'TESLA', 'TOYOTA', 
+  'VAUXHALL', 'VOLKSWAGEN', 'VW', 'VOLVO'
 ];
+
+function parseNumber(str: string): number | null {
+  if (!str) return null;
+  const cleaned = str.replace(/[^\d]/g, '');
+  const num = parseInt(cleaned);
+  return isNaN(num) ? null : num;
+}
 
 function extractBrandFromTitle(title: string): { brand: string; model: string } | null {
   const upperTitle = title.toUpperCase();
@@ -32,205 +46,158 @@ function extractBrandFromTitle(title: string): { brand: string; model: string } 
     if (upperTitle.includes(brand)) {
       const brandIndex = upperTitle.indexOf(brand);
       const afterBrand = title.substring(brandIndex + brand.length).trim();
-      const modelMatch = afterBrand.match(/^[\s-]*([A-Za-z0-9][\w\s-]{0,20}?)(?:\s+\d|\s+-|$)/i);
-      const model = modelMatch ? modelMatch[1].trim() : afterBrand.split(/\s+/)[0];
+      // Extract model - first word/phrase after brand
+      const modelMatch = afterBrand.match(/^[\s-]*([A-Za-z0-9][\w\s-]{0,15}?)(?:\s+\d|\s+-|$|\s+20)/i);
+      const model = modelMatch ? modelMatch[1].trim() : afterBrand.split(/\s+/)[0] || '';
       
       return {
         brand: brand === 'VW' ? 'VOLKSWAGEN' : brand,
-        model: model || ''
+        model: model.toUpperCase()
       };
     }
-  }
-  
-  const words = title.split(/[\s-]+/);
-  if (words.length > 0) {
-    return {
-      brand: words[0].toUpperCase(),
-      model: words.length > 1 ? words[1] : ''
-    };
   }
   
   return null;
 }
 
-function extractDetailsFromHtml(html: string, url: string): ScrapedData['details'] {
+function detectSource(url: string): string {
+  const urlLower = url.toLowerCase();
+  if (urlLower.includes('theparking') || urlLower.includes('leparking')) return 'theparking';
+  if (urlLower.includes('mobile.de')) return 'mobile.de';
+  if (urlLower.includes('schadeautos.nl')) return 'schadeautos';
+  if (urlLower.includes('2dehands') || urlLower.includes('2ememain')) return '2dehands';
+  if (urlLower.includes('kleinanzeigen')) return 'kleinanzeigen';
+  if (urlLower.includes('gaspedaal.nl')) return 'gaspedaal';
+  if (urlLower.includes('marktplaats.nl')) return 'marktplaats';
+  if (urlLower.includes('autoscout24')) return 'autoscout24';
+  return 'generic';
+}
+
+// ===== DETAILS EXTRACTION =====
+function extractDetails(html: string, url: string): ScrapedData['details'] {
   const details: ScrapedData['details'] = {};
+  const source = detectSource(url);
   
-  // Detect source for source-specific extraction
-  const isTheParking = url.includes('theparking.eu') || url.includes('leparking');
-  const isSchadeautos = url.includes('schadeautos.nl');
-  const isAutoscout = url.includes('autoscout24');
-  const isMobileDe = url.includes('mobile.de');
+  console.log(`Extracting details for source: ${source}`);
   
   // === TITLE EXTRACTION ===
-  // For theparking.eu, extract from specific elements (not og:title which is generic share text)
-  if (isTheParking) {
-    // Try main heading with car info
-    const mainHeading = html.match(/<h1[^>]*class=["'][^"']*title[^"']*["'][^>]*>([^<]+)<\/h1>/i);
-    const carTitle = html.match(/<span[^>]*class=["'][^"']*car-title[^"']*["'][^>]*>([^<]+)<\/span>/i);
-    const breadcrumb = html.match(/<h1[^>]*>[\s\S]*?([A-Z][a-zA-Z]+(?:\s+[A-Za-z0-9-]+){1,5})[\s\S]*?<\/h1>/i);
-    
-    // Extract from URL pattern: /used-cars-detail/brand-model/...
-    const urlMatch = url.match(/used-cars-detail\/([^\/]+)\//i);
-    if (urlMatch) {
-      const brandModel = urlMatch[1].replace(/-/g, ' ').toUpperCase();
-      details.title = brandModel;
-    }
-    
-    // Override with actual page title if found
-    if (mainHeading?.[1]) {
-      details.title = mainHeading[1].trim();
-    } else if (carTitle?.[1]) {
-      details.title = carTitle[1].trim();
-    }
-    
-    // Try to get better title from JSON-LD
-    const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-    if (jsonLdMatch) {
-      for (const jsonScript of jsonLdMatch) {
-        try {
-          const jsonContent = jsonScript.replace(/<script[^>]*>|<\/script>/gi, '');
-          const json = JSON.parse(jsonContent);
-          if (json['@type'] === 'Product' || json['@type'] === 'Vehicle' || json['@type'] === 'Car') {
-            if (json.name && !json.name.toLowerCase().includes('found this listing')) {
-              details.title = json.name;
-              break;
-            }
-          }
-        } catch (e) {}
+  // Priority: h1 > title tag > og:title (og:title is often generic share text)
+  const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  const titleTagMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+  
+  let rawTitle = h1Match?.[1] || titleTagMatch?.[1] || ogTitleMatch?.[1] || '';
+  
+  // For TheParking, try to extract from URL if title is generic
+  if (source === 'theparking' && rawTitle) {
+    const badTitles = ['theparking', 'i found', 'isn\'t it great', 'access denied', 'zugriff'];
+    if (badTitles.some(bad => rawTitle.toLowerCase().includes(bad))) {
+      // Extract from URL pattern: /used-cars-detail/brand-model/...
+      const urlMatch = url.match(/used-cars-detail\/([^\/]+)\//i);
+      if (urlMatch) {
+        rawTitle = urlMatch[1].replace(/-/g, ' ');
       }
     }
-  } else {
-    // Standard extraction for other sites
-    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const h1Tag = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-    
-    // Prefer h1 or title tag over og:title (which is often generic sharing text)
-    details.title = h1Tag?.[1] || titleTag?.[1] || ogTitle?.[1] || '';
   }
   
-  details.title = details.title?.trim() || '';
-  
-  // Clean up HTML entities
-  details.title = details.title
+  // Clean title
+  details.title = rawTitle
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&euro;/gi, '€')
     .replace(/&#\d+;/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
   
-  // Skip if we got access denied page or generic sharing text
-  const badTitles = [
-    'zugriff verweigert', 'access denied', 'captcha',
-    'i found this listing', 'isn\'t it great', 'theparking'
-  ];
-  if (badTitles.some(bad => details.title?.toLowerCase().includes(bad))) {
-    // Try URL extraction as fallback
-    const urlMatch = url.match(/used-cars-detail\/([^\/]+)\//i) || 
-                     url.match(/\/([a-z]+-[a-z0-9-]+)\//i);
-    if (urlMatch) {
-      details.title = urlMatch[1].replace(/-/g, ' ').toUpperCase();
-    } else {
-      details.title = '';
-    }
-  }
+  console.log(`Extracted title: ${details.title}`);
   
-  // === BRAND & MODEL EXTRACTION ===
+  // === BRAND & MODEL FROM TITLE ===
   if (details.title) {
     const brandModel = extractBrandFromTitle(details.title);
     if (brandModel) {
       details.brand = brandModel.brand;
       details.model = brandModel.model;
+      console.log(`Extracted brand/model: ${details.brand} ${details.model}`);
     }
   }
   
   // === YEAR EXTRACTION ===
-  // TheParking has year in specific format
+  // Look for year in specific patterns first
   const yearPatterns = [
-    // Specific formats first
-    /["']?year["']?\s*[:=]\s*["']?(\d{4})["']?/i,
-    /Erstzulassung[:\s]*(?:\d{2}\/)?(\d{4})/i,
+    // German patterns
+    /(?:Erstzulassung|EZ)[:\s]*(?:\d{2}\/)?(\d{4})/i,
     /Baujahr[:\s]*(\d{4})/i,
-    /Anno[:\s]*(\d{4})/i,
+    // Dutch patterns
     /Bouwjaar[:\s]*(\d{4})/i,
+    // Generic patterns
+    /["']?year["']?\s*[:=]\s*["']?(\d{4})["']?/i,
     /(\d{4})\s*(?:m\.|metai|jaar|year|bj)/i,
-    // Look for year in listing details section
-    /<(?:span|td|div)[^>]*>[\s\S]*?(\d{4})[\s\S]*?<\/(?:span|td|div)>/i,
+    // JSON-LD
+    /"modelYear"\s*:\s*["']?(\d{4})["']?/i,
+    /"vehicleModelDate"\s*:\s*["']?(\d{4})["']?/i,
   ];
   
   for (const pattern of yearPatterns) {
     const match = html.match(pattern);
     if (match) {
       const year = parseInt(match[1]);
-      if (year >= 1990 && year <= 2026) {
+      if (year >= 1995 && year <= 2026) {
         details.year = year.toString();
+        console.log(`Extracted year: ${details.year}`);
         break;
       }
     }
   }
   
-  // If no year found, try to extract from broader context
+  // Fallback: find most common 4-digit year in valid range
   if (!details.year) {
-    // Look for 4-digit year that makes sense for a car
-    const allYears = html.match(/\b(20[0-2]\d|19[9]\d)\b/g) || [];
+    const allYears = html.match(/\b(20[0-2]\d)\b/g) || [];
     const yearCounts: Record<string, number> = {};
     for (const y of allYears) {
       const yr = parseInt(y);
-      if (yr >= 1995 && yr <= 2025) {
+      if (yr >= 2000 && yr <= 2025) {
         yearCounts[y] = (yearCounts[y] || 0) + 1;
       }
     }
-    // Pick the most common year (likely the listing year)
     const sortedYears = Object.entries(yearCounts).sort((a, b) => b[1] - a[1]);
     if (sortedYears.length > 0) {
       details.year = sortedYears[0][0];
+      console.log(`Extracted year (fallback): ${details.year}`);
     }
   }
   
   // === MILEAGE EXTRACTION ===
-  // TheParking uses: <span>Kilometer</span><span>112,000</span>
-  // First try to find specific HTML patterns for TheParking
-  if (isTheParking) {
-    const theParkingMileage = html.match(/<span>Kilometer<\/span>\s*<span>([\d,.\s]+)<\/span>/i);
+  // TheParking specific: <span>Kilometer</span><span>112,000</span>
+  if (source === 'theparking') {
+    const theParkingMileage = html.match(/<span[^>]*>(?:Kilometer|Kilometerstand|km)[^<]*<\/span>\s*<span[^>]*>([\d,.\s]+)<\/span>/i);
     if (theParkingMileage) {
-      const mileageStr = theParkingMileage[1].replace(/[\s.,]/g, '');
-      const mileage = parseInt(mileageStr);
-      if (mileage >= 100 && mileage < 1000000) {
-        details.mileage = mileage.toString();
+      const km = parseNumber(theParkingMileage[1]);
+      if (km && km >= 100 && km < 1000000) {
+        details.mileage = km.toString();
+        console.log(`Extracted mileage (TheParking): ${details.mileage}`);
       }
     }
   }
   
-  // Also try: <li class="info-bloc-item"><span>Kilometer</span><span>112,000</span></li>
-  if (!details.mileage) {
-    const infoBlocMileage = html.match(/(?:Kilometer|Kilometerstand|km|Mileage|rida)[^<]*<\/span>\s*<span[^>]*>([\d,.\s]+)/i);
-    if (infoBlocMileage) {
-      const mileageStr = infoBlocMileage[1].replace(/[\s.,]/g, '');
-      const mileage = parseInt(mileageStr);
-      if (mileage >= 100 && mileage < 1000000) {
-        details.mileage = mileage.toString();
-      }
-    }
-  }
-  
-  // Generic mileage patterns as fallback
+  // Generic mileage patterns
   if (!details.mileage) {
     const mileagePatterns = [
-      /["']?(?:mileage|kilometers?|km[-_]?stand|kilometerstand|rida)["']?\s*[:=]\s*["']?([\d.,\s]+)\s*(?:km)?["']?/i,
-      /(\d{1,3}(?:[.,\s]\d{3})+)\s*km\b/i,
-      /([\d]{2,6})\s*km\b/i,
-      /km[:\s]*([\d.,\s]+)/i,
+      // Label: value patterns
+      /(?:Kilometerstand|Kilometer|Mileage|km|rida)[:\s]*([\d.,\s]+)\s*(?:km)?/i,
+      // Value km patterns
+      /(\d{1,3}[.,\s]?\d{3})\s*km\b/i,
+      // JSON patterns
+      /"mileageFromOdometer"\s*:\s*["']?([\d.,]+)["']?/i,
+      /"mileage"\s*:\s*["']?([\d.,]+)["']?/i,
     ];
     
     for (const pattern of mileagePatterns) {
       const match = html.match(pattern);
       if (match) {
-        const mileageStr = match[1].replace(/[\s.,]/g, '');
-        const mileage = parseInt(mileageStr);
-        // Valid mileage range (100 to 999999 km)
-        if (mileage >= 100 && mileage < 1000000) {
-          details.mileage = mileage.toString();
+        const km = parseNumber(match[1]);
+        if (km && km >= 100 && km < 1000000) {
+          details.mileage = km.toString();
+          console.log(`Extracted mileage: ${details.mileage}`);
           break;
         }
       }
@@ -239,528 +206,203 @@ function extractDetailsFromHtml(html: string, url: string): ScrapedData['details
   
   // === PRICE EXTRACTION ===
   const pricePatterns = [
-    // Structured data
+    // JSON patterns (most reliable)
     /"price"\s*:\s*["']?([\d.,]+)["']?/i,
     /"offers"\s*:\s*\{[^}]*"price"\s*:\s*["']?([\d.,]+)["']?/i,
     // Euro formats
     /€\s*([\d.,\s]+)/,
     /([\d.,\s]+)\s*€/,
     /EUR\s*([\d.,\s]+)/i,
-    /([\d.,\s]+)\s*EUR\b/i,
     // Price labels
-    /(?:prix|preis|prijs|price)[:\s]*([\d.,\s]+)\s*€?/i,
+    /(?:prix|preis|prijs|price|kaina)[:\s]*([\d.,\s]+)\s*€?/i,
   ];
   
   for (const pattern of pricePatterns) {
     const match = html.match(pattern);
     if (match) {
-      const priceStr = match[1].replace(/[\s.,]/g, '');
-      const price = parseInt(priceStr);
-      // Valid price range for cars
-      if (price >= 500 && price < 500000) {
+      const price = parseNumber(match[1]);
+      if (price && price >= 500 && price < 500000) {
         details.price = price.toString();
+        console.log(`Extracted price: ${details.price}`);
         break;
       }
     }
   }
   
-  console.log('Extracted details from URL:', url.substring(0, 50), details);
+  // === FUEL EXTRACTION ===
+  const fuelPatterns = [
+    /"fuelType"\s*:\s*["']([^"']+)["']/i,
+    /(?:Fuel|Kraftstoff|Brandstof|Kuras)[:\s]*([A-Za-z]+)/i,
+    /\b(Diesel|Petrol|Benzin|Hybrid|Electric|Elektro|LPG)\b/i,
+  ];
+  
+  for (const pattern of fuelPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      details.fuel = match[1];
+      console.log(`Extracted fuel: ${details.fuel}`);
+      break;
+    }
+  }
+  
+  // === COUNTRY EXTRACTION ===
+  const countryPatterns = [
+    /\b(Germany|Deutschland|Vokietija)\b/i,
+    /\b(Belgium|Belgique|België|Belgija)\b/i,
+    /\b(France|Prancūzija)\b/i,
+    /\b(Netherlands|Nederland|Holland|Olandija)\b/i,
+    /\b(Austria|Österreich)\b/i,
+    /\b(Italy|Italia|Italija)\b/i,
+    /\b(Spain|España|Ispanija)\b/i,
+  ];
+  
+  for (const pattern of countryPatterns) {
+    const match = html.match(pattern);
+    if (match) {
+      details.country = match[1];
+      console.log(`Extracted country: ${details.country}`);
+      break;
+    }
+  }
+  
   return details;
 }
 
-// ===== SITE-SPECIFIC EXTRACTORS =====
-
-function extractMobileDeImages(html: string): string[] {
+// ===== IMAGE EXTRACTION =====
+function extractImages(html: string, url: string): string[] {
+  const source = detectSource(url);
   const images: string[] = [];
   
-  // Mobile.de uses various CDNs
-  const patterns = [
-    /https:\/\/[^"'\s]+i\.ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]+prod\.pictures\.autoscout24\.net[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]+img\.classistatic\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]+mobile\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]+apollo[^"'\s]+mobile[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-  ];
+  console.log(`Extracting images for source: ${source}`);
   
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
+  // Source-specific extraction
+  switch (source) {
+    case 'theparking':
+      // Only cloud.leparking.fr images (actual car photos)
+      const theParkingPattern = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi;
+      const theParkingMatches = html.match(theParkingPattern) || [];
+      images.push(...theParkingMatches);
+      
+      // Also scalethumb versions
+      const scalethumbPattern = /https:\/\/scalethumb\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi;
+      const scalethumbMatches = html.match(scalethumbPattern) || [];
+      images.push(...scalethumbMatches);
+      break;
+      
+    case 'schadeautos':
+      // Schadeautos cache images
+      const schadeautosPattern = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[a-f0-9]+(?:~v\d+)?\.jpg/gi;
+      const schadeautosMatches = html.match(schadeautosPattern) || [];
+      // Convert to high-res versions
+      const highResImages = schadeautosMatches.map(img => 
+        img.replace(/\/cache\/picture\/\d+\//, '/cache/picture/1200/')
+      );
+      images.push(...highResImages);
+      break;
+      
+    case 'mobile.de':
+      // Mobile.de uses various CDNs
+      const mobileDePatterns = [
+        /https:\/\/[^"'\s]+i\.ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[^"'\s]+img\.classistatic\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      ];
+      for (const pattern of mobileDePatterns) {
+        images.push(...(html.match(pattern) || []));
+      }
+      break;
+      
+    case 'autoscout24':
+      // AutoScout24 CDN
+      const autoscoutPatterns = [
+        /https:\/\/[^"'\s]+prod\.pictures\.autoscout24\.net[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[^"'\s]+pics\.autoscout24[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      ];
+      for (const pattern of autoscoutPatterns) {
+        images.push(...(html.match(pattern) || []));
+      }
+      break;
+      
+    case '2dehands':
+    case 'marktplaats':
+      const marktplaatsPatterns = [
+        /https:\/\/[^"'\s]+lbthumbs[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[^"'\s]+2dehands[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[^"'\s]+marktplaats[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      ];
+      for (const pattern of marktplaatsPatterns) {
+        images.push(...(html.match(pattern) || []));
+      }
+      break;
+      
+    case 'kleinanzeigen':
+      const kleinanzeigenPatterns = [
+        /https:\/\/[^"'\s]+ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[^"'\s]+img\.classistatic\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      ];
+      for (const pattern of kleinanzeigenPatterns) {
+        images.push(...(html.match(pattern) || []));
+      }
+      break;
   }
   
-  // Extract from JSON-LD
-  const jsonLdRegex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
-  let match;
-  while ((match = jsonLdRegex.exec(html)) !== null) {
+  // Also extract from JSON-LD structured data
+  const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let jsonMatch;
+  while ((jsonMatch = jsonLdPattern.exec(html)) !== null) {
     try {
-      const json = JSON.parse(match[1]);
+      const json = JSON.parse(jsonMatch[1]);
       if (json.image) {
-        if (Array.isArray(json.image)) images.push(...json.image);
-        else if (typeof json.image === 'string') images.push(json.image);
-      }
-      if (json.offers?.image) {
-        if (Array.isArray(json.offers.image)) images.push(...json.offers.image);
-        else if (typeof json.offers.image === 'string') images.push(json.offers.image);
-      }
-    } catch (e) {}
-  }
-  
-  // Extract from gallery data
-  const galleryPattern = /"imageUrl"\s*:\s*"([^"]+)"/gi;
-  while ((match = galleryPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
-  }
-  
-  // Extract from image arrays in script tags
-  const imgArrayPattern = /\["(https?:\/\/[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-  while ((match = imgArrayPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
-  }
-  
-  console.log(`Mobile.de: found ${images.length} images`);
-  return images;
-}
-
-function extractSchadeautosImages(html: string, listingUrl: string): string[] {
-  const images: string[] = [];
-  
-  // Extract listing ID from URL - schadeautos uses numeric ID at end
-  // Examples: /voertuig/audi-a3-sportback/53813 or /o/53813
-  const listingIdMatch = listingUrl.match(/\/(\d+)\/?(?:\?|$)/);
-  const listingId = listingIdMatch?.[1] || '';
-  
-  console.log(`Schadeautos listing ID: ${listingId}`);
-  
-  // Only look for /cache/picture/ URLs - these are the actual listing photos
-  // Pattern: /cache/picture/{size}/{listingId}/{hash}~v{timestamp}.jpg
-  const cachePattern = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/(\d+)\/(\d+)\/([a-f0-9]+)(?:~v\d+)?\.jpg/gi;
-  let match;
-  const foundImages = new Map<string, { url: string; size: number }>();
-  
-  while ((match = cachePattern.exec(html)) !== null) {
-    const [fullUrl, size, imgListingId, hash] = match;
-    
-    // Skip if this is a different listing's image (from recommendations etc)
-    if (listingId && imgListingId !== listingId) {
-      continue;
-    }
-    
-    // Create high-res version URL
-    const highResUrl = `https://www.schadeautos.nl/cache/picture/1200/${imgListingId}/${hash}.jpg`;
-    const sizeNum = parseInt(size);
-    
-    // Store by hash, prefer larger size
-    const existing = foundImages.get(hash);
-    if (!existing || sizeNum > existing.size) {
-      foundImages.set(hash, { url: highResUrl, size: 1200 });
-    }
-  }
-  
-  // Get unique high-res URLs
-  for (const { url } of foundImages.values()) {
-    images.push(url);
-  }
-  
-  // Also check data attributes for zoomed images
-  const dataPattern = /data-(?:zoom|large|original|full)=["'](https:\/\/www\.schadeautos\.nl\/cache\/picture[^"']+)["']/gi;
-  while ((match = dataPattern.exec(html)) !== null) {
-    const url = match[1];
-    if (!images.includes(url) && (!listingId || url.includes(`/${listingId}/`))) {
-      images.push(url);
-    }
-  }
-  
-  console.log(`Schadeautos: found ${images.length} listing images`);
-  return images;
-}
-
-function extractTheParkingImages(html: string, listingUrl: string): string[] {
-  const images: string[] = [];
-  
-  // Extract listing ID from theparking URLs (format: _XXXXXXXXXX.jpg where X is 10 digits)
-  // Find all listing IDs in the HTML to identify the main listing
-  const urlListingIdMatch = listingUrl.match(/tref="(\d{10,})[-"]/) || 
-                           html.match(/tref="(\d{10,})[-"]/);
-  
-  // Also try to extract from image URLs on the page
-  const mainImageMatch = html.match(/cloud\.leparking\.fr\/[^"']*_(\d{10,})\.jpg/);
-  const listingId = urlListingIdMatch?.[1] || mainImageMatch?.[1] || '';
-  
-  console.log(`TheParking listing ID: ${listingId}`);
-  
-  // Only extract images from cloud.leparking.fr with this listing ID
-  if (listingId) {
-    const pattern = new RegExp(`https://[^"'\\s]*cloud\\.leparking\\.fr[^"'\\s]*_${listingId}\\.jpg`, 'gi');
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-    
-    // Also check for scalethumb versions
-    const scalethumbPattern = new RegExp(`https://scalethumb\\.leparking\\.fr[^"'\\s]*_${listingId}\\.jpg`, 'gi');
-    const scalethumbMatches = html.match(scalethumbPattern) || [];
-    images.push(...scalethumbMatches);
-  }
-  
-  // Fallback: extract main listing image from the detail page structure
-  const mainFigurePattern = /<div class="figure"[^>]*>[\s\S]*?<img[^>]+src=["']([^"']+cloud\.leparking\.fr[^"']+)["']/gi;
-  let match;
-  while ((match = mainFigurePattern.exec(html)) !== null) {
-    if (!listingId || match[1].includes(listingId)) {
-      images.push(match[1]);
-    }
-  }
-  
-  // Extract from picture/source tags
-  const sourcePattern = /<source[^>]+srcset=["']([^"']+cloud\.leparking\.fr[^"']+)["']/gi;
-  while ((match = sourcePattern.exec(html)) !== null) {
-    if (!listingId || match[1].includes(listingId)) {
-      images.push(match[1]);
-    }
-  }
-  
-  console.log(`TheParking: found ${images.length} listing images`);
-  return images;
-}
-
-function extract2dehandsImages(html: string): string[] {
-  const images: string[] = [];
-  
-  // 2dehands.be / 2ememain.be image patterns
-  const patterns = [
-    /https:\/\/[^"'\s]*2dehands[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*2ememain[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*lbthumbs[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*marktplaats[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-  }
-  
-  // JSON image arrays
-  const jsonPattern = /"(?:imageUrl|src|url)":\s*"(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-  let match;
-  while ((match = jsonPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
-  }
-  
-  console.log(`2dehands: found ${images.length} images`);
-  return images;
-}
-
-function extractKleinanzeigenImages(html: string): string[] {
-  const images: string[] = [];
-  
-  // Kleinanzeigen (eBay Kleinanzeigen) patterns
-  const patterns = [
-    /https:\/\/[^"'\s]*kleinanzeigen[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*ebayimg\.com[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*ebay-kleinanzeigen[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*img\.classistatic\.de[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-  }
-  
-  // Gallery JSON
-  const galleryPattern = /"(?:image|photo|src|url)":\s*"(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-  let match;
-  while ((match = galleryPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
-  }
-  
-  console.log(`Kleinanzeigen: found ${images.length} images`);
-  return images;
-}
-
-function extractGaspedaalImages(html: string): string[] {
-  const images: string[] = [];
-  
-  // Gaspedaal.nl patterns
-  const patterns = [
-    /https:\/\/[^"'\s]*gaspedaal[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*cdn\.gaspedaal\.nl[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-  }
-  
-  // Data attributes for lazy loading
-  const dataPattern = /data-(?:src|image|lazy|original)=["'](https:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-  let match;
-  while ((match = dataPattern.exec(html)) !== null) {
-    images.push(match[1]);
-  }
-  
-  console.log(`Gaspedaal: found ${images.length} images`);
-  return images;
-}
-
-function extractMarktplaatsImages(html: string): string[] {
-  const images: string[] = [];
-  
-  // Marktplaats.nl patterns
-  const patterns = [
-    /https:\/\/[^"'\s]*marktplaats[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*lbthumbs\.marktplaats[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*cloud\.leparking[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-  }
-  
-  // JSON patterns
-  const jsonPattern = /"(?:imageUrl|src|url|image)":\s*"(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-  let match;
-  while ((match = jsonPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
-  }
-  
-  console.log(`Marktplaats: found ${images.length} images`);
-  return images;
-}
-
-function extractAutoscout24Images(html: string): string[] {
-  const images: string[] = [];
-  
-  // AutoScout24 patterns (works for .de, .be, .nl, .at, etc.)
-  const patterns = [
-    /https:\/\/[^"'\s]*autoscout24[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*prod\.pictures\.autoscout24\.net[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s]*pics\.autoscout24[^"'\s]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = html.match(pattern) || [];
-    images.push(...matches);
-  }
-  
-  // JSON-LD structured data
-  const jsonLdRegex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
-  let match;
-  while ((match = jsonLdRegex.exec(html)) !== null) {
-    try {
-      const json = JSON.parse(match[1]);
-      if (json.image) {
-        if (Array.isArray(json.image)) images.push(...json.image);
-        else if (typeof json.image === 'string') images.push(json.image);
-      }
-    } catch (e) {}
-  }
-  
-  // Gallery data
-  const galleryPattern = /"(?:imageUrl|src|image|url)":\s*"(https:\/\/[^"]*autoscout24[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-  while ((match = galleryPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
-  }
-  
-  // Data attributes
-  const dataPattern = /data-(?:src|image|full|zoom|large)=["'](https:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-  while ((match = dataPattern.exec(html)) !== null) {
-    images.push(match[1]);
-  }
-  
-  console.log(`AutoScout24: found ${images.length} images`);
-  return images;
-}
-
-// Extract images only from .col9.col12-sm.content section (schadeautos layout)
-function extractContentSectionImages(html: string): string[] {
-  const images: string[] = [];
-  
-  // Find div with class containing "col9" AND "col12-sm" AND "content"
-  // Pattern: class="col9 col12-sm content" or similar variations
-  const contentRegex = /<div[^>]+class=["'][^"']*\bcol9\b[^"']*\bcol12-sm\b[^"']*\bcontent\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<div[^>]+class=["'][^"']*\bcol|<\/section>|<footer|$)/gi;
-  
-  // Also try alternative order: content col9 col12-sm
-  const contentRegex2 = /<div[^>]+class=["'][^"']*\bcontent\b[^"']*\bcol9\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<div[^>]+class=["'][^"']*\bcol|<\/section>|<footer|$)/gi;
-  
-  let contentMatch;
-  let contentHtml = '';
-  
-  while ((contentMatch = contentRegex.exec(html)) !== null) {
-    contentHtml += contentMatch[0];
-  }
-  
-  // Try alternative pattern if first didn't match
-  if (!contentHtml) {
-    while ((contentMatch = contentRegex2.exec(html)) !== null) {
-      contentHtml += contentMatch[0];
-    }
-  }
-  
-  // If still no match, try simpler pattern for just "content" class within a col structure
-  if (!contentHtml) {
-    const simpleContentRegex = /<div[^>]+class=["'][^"']*\bcontent\b[^"']*["'][^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>\s*<\/div>|<footer|$)/gi;
-    while ((contentMatch = simpleContentRegex.exec(html)) !== null) {
-      contentHtml += contentMatch[0];
-    }
-  }
-  
-  if (contentHtml) {
-    console.log(`Found content section: ${contentHtml.length} chars`);
-    
-    // Extract images from img tags
-    const imgTagRegex = /<img[^>]+(?:src|data-src|data-lazy|data-original)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-    let match;
-    while ((match = imgTagRegex.exec(contentHtml)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Extract from data attributes
-    const dataPattern = /data-(?:src|image|original|lazy|full|zoom|large)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-    while ((match = dataPattern.exec(contentHtml)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Extract from background images
-    const bgPattern = /url\(['"]?(https?:\/\/[^'")\s]+\.(?:jpg|jpeg|png|webp)[^'")\s]*)['"]?\)/gi;
-    while ((match = bgPattern.exec(contentHtml)) !== null) {
-      images.push(match[1]);
-    }
-    
-    // Extract from srcset attributes
-    const srcsetPattern = /srcset=["']([^"']+)["']/gi;
-    while ((match = srcsetPattern.exec(contentHtml)) !== null) {
-      const srcsetValue = match[1];
-      const srcsetUrls = srcsetValue.split(',').map(s => s.trim().split(/\s+/)[0]);
-      for (const url of srcsetUrls) {
-        if (url.match(/https?:\/\/.*\.(jpg|jpeg|png|webp)/i)) {
-          images.push(url);
+        if (Array.isArray(json.image)) {
+          images.push(...json.image.filter((i: unknown) => typeof i === 'string'));
+        } else if (typeof json.image === 'string') {
+          images.push(json.image);
         }
       }
-    }
-    
-    console.log(`Content section: found ${images.length} images`);
-  } else {
-    console.log('Content section not found');
-  }
-  
-  return images;
-}
-
-function extractGenericImages(html: string): string[] {
-  const images: string[] = [];
-  
-  // OG image
-  const ogImageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-  if (ogImageMatch) images.push(ogImageMatch[1]);
-  
-  // Standard img tags
-  const imgTagRegex = /<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-  let match;
-  while ((match = imgTagRegex.exec(html)) !== null) {
-    images.push(match[1]);
-  }
-  
-  // Data attributes for lazy loading
-  const dataPatterns = [
-    /data-(?:src|image|original|lazy|full|zoom|large|hires|big)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi,
-    /data-srcset=["']([^"']+)["']/gi,
-  ];
-  
-  for (const pattern of dataPatterns) {
-    while ((match = pattern.exec(html)) !== null) {
-      // Handle srcset format
-      if (match[1].includes(',')) {
-        const urls = match[1].split(',').map(s => s.trim().split(' ')[0]);
-        images.push(...urls.filter(u => u.startsWith('http')));
-      } else {
-        images.push(match[1]);
-      }
+    } catch (e) {
+      // Ignore JSON parse errors
     }
   }
   
-  // JSON image patterns
-  const jsonPattern = /"(?:url|src|image|photo|img|picture|href)":\s*"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-  while ((match = jsonPattern.exec(html)) !== null) {
-    images.push(match[1].replace(/\\\//g, '/'));
+  // Extract from img tags as fallback
+  const imgTagPattern = /<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+  let imgMatch;
+  while ((imgMatch = imgTagPattern.exec(html)) !== null) {
+    images.push(imgMatch[1]);
   }
   
-  // Background images in style
-  const bgPattern = /url\(['"]?(https?:\/\/[^'")\s]+\.(?:jpg|jpeg|png|webp)[^'")\s]*)['"]?\)/gi;
-  while ((match = bgPattern.exec(html)) !== null) {
-    images.push(match[1]);
+  // Extract from data attributes (lazy loading)
+  const dataPattern = /data-(?:src|image|original|lazy|full|zoom)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+  while ((imgMatch = dataPattern.exec(html)) !== null) {
+    images.push(imgMatch[1]);
   }
   
+  console.log(`Found ${images.length} raw images`);
   return images;
 }
 
-function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
+function filterImages(images: string[], url: string): string[] {
+  // Patterns to exclude
   const excludePatterns = [
-    // Generic exclusions
-    /logo/i, /icon/i, /flag/i, /avatar/i, /placeholder/i, /blank/i,
-    /spinner/i, /loading/i, /banner/i, /ad[-_]/i, /\/ads\//i,
+    /logo/i, /icon/i, /flag/i, /avatar/i, /placeholder/i,
+    /spinner/i, /loading/i, /banner/i, /\/ads?\//i,
     /favicon/i, /button/i, /arrow/i, /social/i, /share/i,
-    /facebook|twitter|instagram|linkedin|youtube|whatsapp/i,
-    /1x1|pixel|tracking/i, /badge/i, /rating/i, /star/i,
-    /sprite/i, /thumb_\d+x\d+/i, /\/s\/\d+x\d+\//i,
-    
-    // Schadeautos exclusions
-    /\/gfx\//i,
-    /visual\/SA2-/i,
-    /build-year\.png/i, /distance\.png/i,
-    
-    // TheParking exclusions - UI elements and similar listings
-    /\/images\/home\.(png|webp)/i,
-    /\/images\/id_categorie/i,
-    /\/images\/camera-solid/i,
-    /modele\.leparking\.fr/i, // Sample/example cars, NOT the actual listing
-    /carvertical\.postaffiliatepro/i, // Affiliate banners
-    /postaffiliatepro/i,
-    
-    // Generic site assets
-    /\/assets\//i,
-    /\/static\//i,
-    /\.gif$/i, // GIF flags and icons
+    /facebook|twitter|instagram|linkedin|youtube/i,
+    /1x1|pixel|tracking/i, /badge/i, /rating/i,
+    /sprite/i, /thumb_\d+x\d+/i,
+    /modele\.leparking/i, // Sample images from TheParking
+    /postaffiliatepro/i, // Affiliate banners
+    /\/gfx\//i, // Site graphics
+    /\.gif$/i, // Animated GIFs
+    /\.svg$/i, // SVG icons
   ];
   
-  // Extract listing ID from URL if possible (for theparking)
-  const listingIdMatch = sourceUrl.match(/_(\d{10,})\./);
-  const listingId = listingIdMatch?.[1] || '';
-  
-  // Size preference patterns
-  const sizePatterns = [
-    { pattern: /\/(\d+)x(\d+)\//i, extractor: (m: RegExpMatchArray) => parseInt(m[1]) * parseInt(m[2]) },
-    { pattern: /\/cache\/picture\/(\d+)\//i, extractor: (m: RegExpMatchArray) => parseInt(m[1]) },
-    { pattern: /_(\d+)x(\d+)\./i, extractor: (m: RegExpMatchArray) => parseInt(m[1]) * parseInt(m[2]) },
-    { pattern: /[?&]w=(\d+)/i, extractor: (m: RegExpMatchArray) => parseInt(m[1]) },
-  ];
-  
-  const getImageSize = (url: string): number => {
-    for (const { pattern, extractor } of sizePatterns) {
-      const match = url.match(pattern);
-      if (match) return extractor(match);
-    }
-    return 0;
-  };
-  
-  const normalizeUrl = (url: string): string => {
-    return url
-      .replace(/\/\d+x\d+\//g, '/SIZE/')
-      .replace(/_\d+x\d+/g, '_SIZE')
-      .replace(/\/cache\/picture\/\d+\//g, '/cache/picture/X/')
-      .replace(/~v\d+/g, '')
-      .replace(/\?.*$/, '')
-      .replace(/\/unsafe\/\d+x\d+\//g, '/unsafe/SIZE/')
-      .replace(/(https?:\/\/[^/]+).*?([a-f0-9]{8,}).*$/i, '$1...$2');
-  };
-  
-  // For theparking listings, prefer images that contain the listing ID
-  const isListingImage = (url: string): boolean => {
-    if (!listingId) return true;
-    return url.includes(listingId);
-  };
-  
-  const seen = new Map<string, { url: string; size: number; isListing: boolean }>();
+  // Filter and dedupe
+  const seen = new Set<string>();
+  const filtered: string[] = [];
   
   for (const img of images) {
     if (!img || !img.startsWith('http')) continue;
+    if (img.length < 50) continue; // Too short to be a real image URL
     
     // Check exclusions
     let excluded = false;
@@ -772,63 +414,25 @@ function filterAndDedupeImages(images: string[], sourceUrl: string): string[] {
     }
     if (excluded) continue;
     
-    // Skip very short URLs (likely not real images)
-    if (img.length < 40) continue;
+    // Normalize URL for deduplication
+    const normalized = img
+      .replace(/\/\d+x\d+\//g, '/SIZE/')
+      .replace(/\?.*$/, '')
+      .replace(/~v\d+/g, '');
     
-    const normalizedKey = normalizeUrl(img);
-    const size = getImageSize(img);
-    const isListing = isListingImage(img);
-    const existing = seen.get(normalizedKey);
-    
-    // Prefer listing images over non-listing images
-    if (!existing || 
-        (isListing && !existing.isListing) || 
-        (isListing === existing.isListing && size > existing.size)) {
-      seen.set(normalizedKey, { url: img, size, isListing });
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      filtered.push(img);
     }
   }
   
-  // Sort: listing images first, then by size
-  const result = Array.from(seen.values())
-    .sort((a, b) => {
-      if (a.isListing !== b.isListing) return a.isListing ? -1 : 1;
-      return b.size - a.size;
-    })
-    .map(item => item.url)
-    .slice(0, 50);
-  
-  console.log(`Filtered to ${result.length} unique images (listing images prioritized)`);
+  // Limit to 30 images
+  const result = filtered.slice(0, 30);
+  console.log(`Filtered to ${result.length} unique images`);
   return result;
 }
 
-function detectSource(url: string): string {
-  const urlLower = url.toLowerCase();
-  if (urlLower.includes('theparking') || urlLower.includes('leparking') || urlLower.includes('dasparking') || urlLower.includes('ilparking') || urlLower.includes('el-parking') || urlLower.includes('oparking')) return 'theparking';
-  if (urlLower.includes('mobile.de') || urlLower.includes('suchen.mobile.de')) return 'mobile.de';
-  if (urlLower.includes('schadeautos.nl')) return 'schadeautos';
-  if (urlLower.includes('2dehands') || urlLower.includes('2ememain')) return '2dehands';
-  if (urlLower.includes('kleinanzeigen') || urlLower.includes('ebay-kleinanzeigen')) return 'kleinanzeigen';
-  if (urlLower.includes('gaspedaal.nl')) return 'gaspedaal';
-  if (urlLower.includes('marktplaats.nl')) return 'marktplaats';
-  if (urlLower.includes('autoscout24')) return 'autoscout24';
-  return 'generic';
-}
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = 2): Promise<Response | null> {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.ok) return response;
-    } catch (e) {
-      console.log(`Fetch attempt ${i + 1} failed:`, e);
-    }
-    if (i < retries) {
-      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-    }
-  }
-  return null;
-}
-
+// ===== MAIN HANDLER =====
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -844,37 +448,32 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Processing listing: ${listingUrl}`);
+    console.log(`\n===== Processing: ${listingUrl} =====\n`);
     const source = detectSource(listingUrl);
     console.log(`Detected source: ${source}`);
     
     const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY_1') || Deno.env.get('FIRECRAWL_API_KEY');
     
     let html = '';
-    let usedScreenshot = false;
     
-    // Try Firecrawl first with better options for anti-bot sites
+    // Try Firecrawl first
     if (firecrawlKey) {
       try {
-        console.log('Trying Firecrawl with enhanced settings...');
+        console.log('Fetching with Firecrawl...');
         
-        // For mobile.de and similar protected sites, use screenshot + scrape
         const firecrawlBody: Record<string, unknown> = {
           url: listingUrl,
           formats: ['html', 'rawHtml'],
-          waitFor: 8000,
+          waitFor: 5000,
           timeout: 30000,
         };
         
-        // Add location settings for German sites
+        // Add location for German sites
         if (source === 'mobile.de' || source === 'kleinanzeigen' || source === 'autoscout24') {
-          firecrawlBody.location = {
-            country: 'DE',
-            languages: ['de']
-          };
+          firecrawlBody.location = { country: 'DE', languages: ['de'] };
         }
         
-        const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${firecrawlKey}`,
@@ -883,175 +482,85 @@ Deno.serve(async (req) => {
           body: JSON.stringify(firecrawlBody),
         });
         
-        if (firecrawlResponse.ok) {
-          const firecrawlData = await firecrawlResponse.json();
-          html = firecrawlData.data?.rawHtml || firecrawlData.data?.html || firecrawlData.rawHtml || firecrawlData.html || '';
+        if (response.ok) {
+          const data = await response.json();
+          html = data.data?.rawHtml || data.data?.html || data.rawHtml || data.html || '';
           
-          // Check if we got blocked
-          if (html.includes('Zugriff verweigert') || html.includes('Access Denied') || html.includes('captcha')) {
-            console.log('Firecrawl got blocked, trying alternative approach...');
+          // Check if blocked
+          if (html.includes('Zugriff verweigert') || 
+              html.includes('Access Denied') || 
+              html.includes('captcha')) {
+            console.log('Firecrawl request was blocked');
             html = '';
           } else {
-            console.log(`Firecrawl fetched ${html.length} bytes`);
+            console.log(`Firecrawl got ${html.length} bytes`);
           }
-        } else {
-          const errorData = await firecrawlResponse.json().catch(() => ({}));
-          console.log('Firecrawl failed:', errorData);
         }
       } catch (e) {
-        console.log('Firecrawl error:', e);
+        console.error('Firecrawl error:', e);
       }
     }
     
-    // Fallback to direct fetch with various headers
+    // Fallback to direct fetch
     if (!html || html.length < 1000) {
-      console.log('Trying direct fetch with browser-like headers...');
-      
-      const userAgents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-      ];
-      
-      for (const ua of userAgents) {
-        try {
-          const response = await fetch(listingUrl, {
-            headers: {
-              'User-Agent': ua,
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-              'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7,nl;q=0.6',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache',
-              'Sec-Fetch-Dest': 'document',
-              'Sec-Fetch-Mode': 'navigate',
-              'Sec-Fetch-Site': 'none',
-              'Sec-Fetch-User': '?1',
-              'Upgrade-Insecure-Requests': '1',
-            },
-          });
-
-          if (response.ok) {
-            const directHtml = await response.text();
-            
-            // Check if not blocked
-            if (!directHtml.includes('Zugriff verweigert') && 
-                !directHtml.includes('Access Denied') && 
-                !directHtml.includes('captcha')) {
-              if (directHtml.length > html.length) {
-                html = directHtml;
-                console.log(`Direct fetch got ${html.length} bytes`);
-                break;
-              }
-            }
+      console.log('Trying direct fetch...');
+      try {
+        const response = await fetch(listingUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+          },
+        });
+        
+        if (response.ok) {
+          const directHtml = await response.text();
+          if (!directHtml.includes('Zugriff verweigert') && 
+              !directHtml.includes('Access Denied')) {
+            html = directHtml;
+            console.log(`Direct fetch got ${html.length} bytes`);
           }
-        } catch (e) {
-          console.log('Direct fetch error:', e);
         }
+      } catch (e) {
+        console.error('Direct fetch error:', e);
       }
     }
-
-    // Extract what we can even if blocked - for some sites the images are in the initial response
-    const details = extractDetailsFromHtml(html, listingUrl);
-    console.log('Extracted details:', details);
-
-    // Extract images based on source
-    let allImages: string[] = [];
     
-    switch (source) {
-      case 'theparking':
-        allImages = extractTheParkingImages(html, listingUrl);
-        break;
-      case 'mobile.de':
-        allImages = extractMobileDeImages(html);
-        break;
-      case 'schadeautos':
-        allImages = extractSchadeautosImages(html, listingUrl);
-        break;
-      case '2dehands':
-        allImages = extract2dehandsImages(html);
-        break;
-      case 'kleinanzeigen':
-        allImages = extractKleinanzeigenImages(html);
-        break;
-      case 'gaspedaal':
-        allImages = extractGaspedaalImages(html);
-        break;
-      case 'marktplaats':
-        allImages = extractMarktplaatsImages(html);
-        break;
-      case 'autoscout24':
-        allImages = extractAutoscout24Images(html);
-        break;
-      default:
-        allImages = [];
-    }
+    // Extract data
+    const details = extractDetails(html, listingUrl);
+    const rawImages = extractImages(html, listingUrl);
+    const images = filterImages(rawImages, listingUrl);
     
-    // First try to extract only from .col9.col12-sm.content section
-    const contentImages = extractContentSectionImages(html);
-    if (contentImages.length > 0) {
-      allImages.push(...contentImages);
-      console.log(`Using ${contentImages.length} images from .content section`);
-    } else {
-      // Fallback to generic extraction if no content section found
-      const genericImages = extractGenericImages(html);
-      allImages.push(...genericImages);
-      console.log(`Fallback: using ${genericImages.length} generic images`);
-    }
-    
-    console.log(`Total raw images: ${allImages.length}`);
-    
-    // Filter and dedupe
-    const result = filterAndDedupeImages(allImages, listingUrl);
-    
-    console.log(`Final result: ${result.length} unique images`);
-
-    // Check for various blocking scenarios
-    const isBlocked = html.includes('Zugriff verweigert') || 
+    // Check if we got blocked
+    const isBlocked = html.length < 1000 || 
+                      html.includes('Zugriff verweigert') || 
                       html.includes('Access Denied') ||
                       html.includes('captcha');
     
-    // Check if schadeautos redirected to home page (they block scrapers this way)
-    const isSchadeautosHomePage = source === 'schadeautos' && 
-      (html.includes('<body class="home') || 
-       html.includes('Buy Damaged Cars') ||
-       (details.title?.includes('Schadeautos') && !listingUrl.includes(details.title)));
-    
-    // If blocked or no images found, return empty array gracefully instead of error
-    // This allows the UI to continue working
-    if (result.length === 0) {
-      const wasBlocked = isBlocked || isSchadeautosHomePage;
-      console.log(`No images found. Blocked: ${wasBlocked}, Source: ${source}`);
-      
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          images: [],
-          details,
-          source,
-          count: 0,
-          warning: wasBlocked 
-            ? 'Šis portalas blokuoja scrapinimą. Nuotraukų nepavyko gauti.'
-            : 'Nuotraukų nerasta šiame puslapyje.'
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    console.log(`\n===== Result: ${images.length} images, blocked: ${isBlocked} =====\n`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        images: result,
+        images,
         details,
         source,
-        count: result.length 
+        count: images.length,
+        warning: isBlocked && images.length === 0 
+          ? 'Šis portalas blokuoja scrapinimą. Nuotraukų nepavyko gauti.'
+          : undefined
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
     console.error('Error:', error);
     return new Response(
-      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        images: [],
+        details: {}
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
