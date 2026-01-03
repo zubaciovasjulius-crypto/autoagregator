@@ -275,105 +275,183 @@ function extractImages(html: string, url: string): string[] {
   
   console.log(`Extracting images for source: ${source}`);
   
-  // Source-specific extraction
+  // Source-specific extraction with high-quality URLs
   switch (source) {
     case 'theparking':
-      // Only cloud.leparking.fr images (actual car photos)
-      const theParkingPattern = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi;
+      // TheParking uses cloud.leparking.fr - extract LARGEST versions
+      // Pattern: /XXX/YYY/ZZZ.jpg where XXX is width
+      const theParkingPattern = /https:\/\/cloud\.leparking\.fr\/\d+\/\d+\/\d+\/[a-f0-9]+_\d+\.(?:jpg|jpeg|png|webp)/gi;
       const theParkingMatches = html.match(theParkingPattern) || [];
-      images.push(...theParkingMatches);
       
-      // Also scalethumb versions
-      const scalethumbPattern = /https:\/\/scalethumb\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi;
+      // Convert to maximum resolution (2160 is max available)
+      for (const img of theParkingMatches) {
+        const highRes = img.replace(/\/\d+\/(\d+\/\d+\/[a-f0-9]+_\d+\.)/, '/2160/$1');
+        images.push(highRes);
+      }
+      
+      // Also try scalethumb pattern
+      const scalethumbPattern = /https:\/\/scalethumb\.leparking\.fr\/unsafe\/\d+x\d+\/[^"'\s)>]+/gi;
       const scalethumbMatches = html.match(scalethumbPattern) || [];
-      images.push(...scalethumbMatches);
+      for (const img of scalethumbMatches) {
+        // Convert to larger size (max 1920x1440)
+        const highRes = img.replace(/\/unsafe\/\d+x\d+\//, '/unsafe/1920x1440/');
+        images.push(highRes);
+      }
+      
+      // Direct cloud URLs without dimensions
+      const cloudPattern = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi;
+      images.push(...(html.match(cloudPattern) || []));
       break;
       
     case 'schadeautos':
-      // Schadeautos cache images
-      const schadeautosPattern = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[a-f0-9]+(?:~v\d+)?\.jpg/gi;
-      const schadeautosMatches = html.match(schadeautosPattern) || [];
-      // Convert to high-res versions
-      const highResImages = schadeautosMatches.map(img => 
-        img.replace(/\/cache\/picture\/\d+\//, '/cache/picture/1200/')
-      );
-      images.push(...highResImages);
+      // Schadeautos uses /cache/picture/WIDTH/ID/hash.jpg
+      // Extract all cache picture URLs and convert to max resolution (1200)
+      const schadePattern = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[a-f0-9]+(?:~v\d+)?\.(?:jpg|jpeg|png)/gi;
+      const schadeMatches = html.match(schadePattern) || [];
+      
+      const highResSet = new Set<string>();
+      for (const img of schadeMatches) {
+        // Convert to 1200px width for best quality
+        const highRes = img.replace(/\/cache\/picture\/\d+\//, '/cache/picture/1200/');
+        highResSet.add(highRes);
+      }
+      images.push(...Array.from(highResSet));
+      
+      // Also try direct image URLs
+      const directSchadePattern = /https:\/\/www\.schadeautos\.nl\/[^"'\s]+\/pictures\/[^"'\s]+\.(?:jpg|jpeg|png)/gi;
+      images.push(...(html.match(directSchadePattern) || []));
       break;
       
     case 'mobile.de':
-      // Mobile.de uses various CDNs
-      const mobileDePatterns = [
-        /https:\/\/[^"'\s]+i\.ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-        /https:\/\/[^"'\s]+img\.classistatic\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      // Mobile.de uses various CDN patterns
+      const mobilePatterns = [
+        /https:\/\/[a-z0-9.-]+\.ebayimg\.com\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[a-z0-9.-]+\.classistatic\.de\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/img\.mobile\.de\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
       ];
-      for (const pattern of mobileDePatterns) {
-        images.push(...(html.match(pattern) || []));
+      for (const pattern of mobilePatterns) {
+        const matches = html.match(pattern) || [];
+        // Convert to high-res versions
+        for (const img of matches) {
+          const highRes = img
+            .replace(/\$_\d+/, '$_86') // eBay high-res suffix
+            .replace(/\/\d+x\d+\//, '/1200x900/');
+          images.push(highRes);
+        }
       }
       break;
       
     case 'autoscout24':
-      // AutoScout24 CDN
-      const autoscoutPatterns = [
-        /https:\/\/[^"'\s]+prod\.pictures\.autoscout24\.net[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-        /https:\/\/[^"'\s]+pics\.autoscout24[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      // AutoScout24 patterns
+      const as24Patterns = [
+        /https:\/\/[a-z0-9.-]+\.autoscout24\.net\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[a-z0-9.-]+\.autoscout24\.com\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
       ];
-      for (const pattern of autoscoutPatterns) {
-        images.push(...(html.match(pattern) || []));
+      for (const pattern of as24Patterns) {
+        const matches = html.match(pattern) || [];
+        for (const img of matches) {
+          // Convert to high-res version
+          const highRes = img.replace(/\/\d+x\d+\//, '/1200x900/');
+          images.push(highRes);
+        }
       }
       break;
       
     case '2dehands':
     case 'marktplaats':
-      const marktplaatsPatterns = [
-        /https:\/\/[^"'\s]+lbthumbs[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-        /https:\/\/[^"'\s]+2dehands[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-        /https:\/\/[^"'\s]+marktplaats[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      const mpPatterns = [
+        /https:\/\/[a-z0-9.-]+cdn[a-z0-9.-]*\.2dehands\.be\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[a-z0-9.-]+cdn[a-z0-9.-]*\.marktplaats\.nl\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/images\.lbthumbs\.(?:be|nl)\/[^"'\s)>]+/gi,
       ];
-      for (const pattern of marktplaatsPatterns) {
+      for (const pattern of mpPatterns) {
         images.push(...(html.match(pattern) || []));
       }
       break;
       
     case 'kleinanzeigen':
-      const kleinanzeigenPatterns = [
-        /https:\/\/[^"'\s]+ebayimg\.com[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
-        /https:\/\/[^"'\s]+img\.classistatic\.de[^"'\s]+\.(?:jpg|jpeg|png|webp)/gi,
+      const kaPatterns = [
+        /https:\/\/[a-z0-9.-]+\.ebayimg\.com\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[a-z0-9.-]+\.classistatic\.de\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
       ];
-      for (const pattern of kleinanzeigenPatterns) {
+      for (const pattern of kaPatterns) {
+        const matches = html.match(pattern) || [];
+        for (const img of matches) {
+          const highRes = img.replace(/\$_\d+/, '$_86');
+          images.push(highRes);
+        }
+      }
+      break;
+      
+    case 'gaspedaal':
+      const gpPatterns = [
+        /https:\/\/[a-z0-9.-]+\.gaspedaal\.nl\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+      ];
+      for (const pattern of gpPatterns) {
         images.push(...(html.match(pattern) || []));
       }
       break;
   }
   
-  // Also extract from JSON-LD structured data
+  // Extract from JSON-LD (structured data - usually has high-quality URLs)
   const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let jsonMatch;
   while ((jsonMatch = jsonLdPattern.exec(html)) !== null) {
     try {
       const json = JSON.parse(jsonMatch[1]);
-      if (json.image) {
-        if (Array.isArray(json.image)) {
-          images.push(...json.image.filter((i: unknown) => typeof i === 'string'));
-        } else if (typeof json.image === 'string') {
-          images.push(json.image);
+      const extractFromObj = (obj: unknown): void => {
+        if (typeof obj === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(obj)) {
+          images.push(obj);
+        } else if (Array.isArray(obj)) {
+          obj.forEach(extractFromObj);
+        } else if (obj && typeof obj === 'object') {
+          const record = obj as Record<string, unknown>;
+          if (record.image) extractFromObj(record.image);
+          if (record.photo) extractFromObj(record.photo);
+          if (record.contentUrl) extractFromObj(record.contentUrl);
+          if (record.thumbnailUrl) extractFromObj(record.thumbnailUrl);
         }
-      }
-    } catch (e) {
+      };
+      extractFromObj(json);
+    } catch {
       // Ignore JSON parse errors
     }
   }
   
-  // Extract from img tags as fallback
-  const imgTagPattern = /<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-  let imgMatch;
-  while ((imgMatch = imgTagPattern.exec(html)) !== null) {
-    images.push(imgMatch[1]);
+  // Extract from og:image and twitter:image (usually high-quality)
+  const ogImagePattern = /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)[^>]+content=["']([^"']+)["']/gi;
+  while ((jsonMatch = ogImagePattern.exec(html)) !== null) {
+    if (jsonMatch[1] && /\.(jpg|jpeg|png|webp)/i.test(jsonMatch[1])) {
+      images.push(jsonMatch[1]);
+    }
   }
   
-  // Extract from data attributes (lazy loading)
-  const dataPattern = /data-(?:src|image|original|lazy|full|zoom)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
-  while ((imgMatch = dataPattern.exec(html)) !== null) {
-    images.push(imgMatch[1]);
+  // Extract from data-src, data-original, data-zoom (lazy loading - often high-res)
+  const dataSrcPatterns = [
+    /data-(?:src|original|zoom|full|high-res|large)=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi,
+    /data-srcset=["']([^"']+)["']/gi,
+  ];
+  for (const pattern of dataSrcPatterns) {
+    while ((jsonMatch = pattern.exec(html)) !== null) {
+      // For srcset, take the largest image
+      if (jsonMatch[0].includes('srcset')) {
+        const srcset = jsonMatch[1].split(',');
+        for (const src of srcset) {
+          const parts = src.trim().split(/\s+/);
+          if (parts[0] && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(parts[0])) {
+            images.push(parts[0]);
+          }
+        }
+      } else {
+        images.push(jsonMatch[1]);
+      }
+    }
+  }
+  
+  // Extract from regular img src (fallback)
+  const imgSrcPattern = /<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/gi;
+  while ((jsonMatch = imgSrcPattern.exec(html)) !== null) {
+    images.push(jsonMatch[1]);
   }
   
   console.log(`Found ${images.length} raw images`);
@@ -381,32 +459,67 @@ function extractImages(html: string, url: string): string[] {
 }
 
 function filterImages(images: string[], url: string): string[] {
-  // Patterns to exclude
+  const source = detectSource(url);
+  
+  // Patterns to exclude (site graphics, not car photos)
   const excludePatterns = [
-    /logo/i, /icon/i, /flag/i, /avatar/i, /placeholder/i,
-    /spinner/i, /loading/i, /banner/i, /\/ads?\//i,
-    /favicon/i, /button/i, /arrow/i, /social/i, /share/i,
-    /facebook|twitter|instagram|linkedin|youtube/i,
-    /1x1|pixel|tracking/i, /badge/i, /rating/i,
-    /sprite/i, /thumb_\d+x\d+/i,
-    /modele\.leparking/i, // Sample images from TheParking
-    /postaffiliatepro/i, // Affiliate banners
-    /\/gfx\//i, // Site graphics
-    /\.gif$/i, // Animated GIFs
-    /\.svg$/i, // SVG icons
+    /logo/i, /icon[-_]?/i, /favicon/i, /sprite/i,
+    /button/i, /arrow/i, /nav[-_]/i, /menu[-_]/i,
+    /facebook|twitter|instagram|linkedin|youtube|whatsapp|telegram/i,
+    /1x1|pixel|tracking|beacon/i, /\.gif$/i, /\.svg$/i,
+    /postaffiliatepro/i, /\/ads?\//i, /banner(?!\.)/i,
+    /share[-_]?/i, /rating/i, /badge(?!s)/i, /star[-_]/i,
+    /avatar/i, /user[-_]?pic/i, /profile[-_]?/i,
+    /modele\.leparking/i, // TheParking sample images
+    /\/gfx\//i, /\/static\//i, /\/assets\//i,
+    /placeholder/i, /loading[-_]/i, /spinner/i,
+    /flag[-_]/i, /country[-_]/i, /lang[-_]/i,
+    /payment/i, /credit[-_]?card/i, /visa|mastercard|paypal/i,
+    /app[-_]?store|play[-_]?store|google[-_]?play/i,
   ];
   
+  // Source-specific filters
+  const sourceFilters: Record<string, RegExp[]> = {
+    'theparking': [/scalethumb.*\/50x/i, /\/80\//i, /\/120\//i, /\/240\//i],
+    'schadeautos': [/\/cache\/picture\/(?:80|120|240|320)\//i],
+    'mobile.de': [/\$_\d{1,2}(?!\d)/i], // Small eBay thumbnails
+  };
+  
+  const extraFilters = sourceFilters[source] || [];
+  
+  // Prefer high-quality images
+  const qualityScore = (img: string): number => {
+    let score = 0;
+    
+    // High-res indicators
+    if (/\/2160\//i.test(img) || /\/1920/i.test(img)) score += 100;
+    if (/\/1200/i.test(img) || /\/1080/i.test(img)) score += 80;
+    if (/\/800/i.test(img) || /\/900/i.test(img)) score += 60;
+    if (/large|full|original|high|zoom/i.test(img)) score += 50;
+    if (/\$_86/i.test(img)) score += 40; // eBay high-res
+    
+    // Low-res indicators (penalize)
+    if (/\/80\//i.test(img) || /\/120\//i.test(img)) score -= 50;
+    if (/thumb|small|mini/i.test(img)) score -= 30;
+    if (/\$_\d{1,2}(?!\d)/i.test(img)) score -= 20;
+    
+    // Source-specific bonuses
+    if (source === 'theparking' && /cloud\.leparking\.fr/i.test(img)) score += 20;
+    if (source === 'schadeautos' && /schadeautos\.nl\/cache\/picture\/1200/i.test(img)) score += 20;
+    
+    return score;
+  };
+  
   // Filter and dedupe
-  const seen = new Set<string>();
-  const filtered: string[] = [];
+  const seen = new Map<string, { url: string; score: number }>();
   
   for (const img of images) {
     if (!img || !img.startsWith('http')) continue;
-    if (img.length < 50) continue; // Too short to be a real image URL
+    if (img.length < 30) continue;
     
     // Check exclusions
     let excluded = false;
-    for (const pattern of excludePatterns) {
+    for (const pattern of [...excludePatterns, ...extraFilters]) {
       if (pattern.test(img)) {
         excluded = true;
         break;
@@ -414,21 +527,30 @@ function filterImages(images: string[], url: string): string[] {
     }
     if (excluded) continue;
     
-    // Normalize URL for deduplication
+    // Create normalized key for deduplication (same image, different sizes)
     const normalized = img
-      .replace(/\/\d+x\d+\//g, '/SIZE/')
+      .replace(/\/\d+x?\d*\//g, '/SIZE/')
+      .replace(/\$_\d+/g, '$_SIZE')
+      .replace(/~v\d+/g, '')
       .replace(/\?.*$/, '')
-      .replace(/~v\d+/g, '');
+      .toLowerCase();
     
-    if (!seen.has(normalized)) {
-      seen.add(normalized);
-      filtered.push(img);
+    const score = qualityScore(img);
+    const existing = seen.get(normalized);
+    
+    // Keep higher quality version
+    if (!existing || score > existing.score) {
+      seen.set(normalized, { url: img, score });
     }
   }
   
-  // Limit to 30 images
-  const result = filtered.slice(0, 30);
-  console.log(`Filtered to ${result.length} unique images`);
+  // Sort by quality score and take top 30
+  const sorted = Array.from(seen.values())
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.url);
+  
+  const result = sorted.slice(0, 30);
+  console.log(`Filtered to ${result.length} unique high-quality images`);
   return result;
 }
 
