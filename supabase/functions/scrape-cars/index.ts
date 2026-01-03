@@ -23,6 +23,400 @@ interface CarListing {
   image: string | null;
 }
 
+// Known car brands for parsing
+const CAR_BRANDS = [
+  'ABARTH', 'ACURA', 'ALFA ROMEO', 'ASTON MARTIN', 'AUDI', 'BENTLEY', 'BMW', 
+  'BUGATTI', 'BUICK', 'CADILLAC', 'CHEVROLET', 'CHRYSLER', 'CITROEN', 'CUPRA',
+  'DACIA', 'DAEWOO', 'DAIHATSU', 'DODGE', 'DS', 'FERRARI', 'FIAT', 'FORD',
+  'GENESIS', 'GMC', 'HONDA', 'HUMMER', 'HYUNDAI', 'INFINITI', 'ISUZU', 'IVECO',
+  'JAGUAR', 'JEEP', 'KIA', 'KOENIGSEGG', 'LADA', 'LAMBORGHINI', 'LANCIA', 
+  'LAND ROVER', 'LEXUS', 'LINCOLN', 'LOTUS', 'MASERATI', 'MAYBACH', 'MAZDA',
+  'MCLAREN', 'MERCEDES', 'MERCEDES-BENZ', 'MINI', 'MITSUBISHI', 'NISSAN', 
+  'OPEL', 'PAGANI', 'PEUGEOT', 'PLYMOUTH', 'POLESTAR', 'PONTIAC', 'PORSCHE',
+  'RAM', 'RANGE ROVER', 'RENAULT', 'ROLLS ROYCE', 'ROLLS-ROYCE', 'SAAB', 'SEAT',
+  'SKODA', 'SMART', 'SSANGYONG', 'SUBARU', 'SUZUKI', 'TESLA', 'TOYOTA', 
+  'VAUXHALL', 'VOLKSWAGEN', 'VW', 'VOLVO'
+];
+
+function normalizeBrand(brand: string): string {
+  const b = brand.toUpperCase().trim();
+  if (b === 'VW') return 'VOLKSWAGEN';
+  if (b === 'MERCEDES-BENZ' || b === 'MB') return 'MERCEDES';
+  if (b === 'ROLLS-ROYCE') return 'ROLLS ROYCE';
+  return b;
+}
+
+function normalizeFuel(fuel: string): string {
+  const f = fuel.toLowerCase();
+  if (f.includes('diesel') || f.includes('dyzel')) return 'Dyzelinas';
+  if (f.includes('petrol') || f.includes('benzin')) return 'Benzinas';
+  if (f.includes('hybrid')) return 'Hibridas';
+  if (f.includes('electric') || f.includes('elektro') || f.includes('ev')) return 'Elektra';
+  if (f.includes('lpg') || f.includes('gas')) return 'LPG';
+  return 'Dyzelinas';
+}
+
+function normalizeCountry(country: string): string {
+  const c = country.toUpperCase();
+  if (c.includes('GERMANY') || c.includes('VOKIETIJA') || c.includes('DE')) return 'Vokietija';
+  if (c.includes('BELGIUM') || c.includes('BELGIJA') || c.includes('BE')) return 'Belgija';
+  if (c.includes('FRANCE') || c.includes('PRANCŪZIJA') || c.includes('FR')) return 'Prancūzija';
+  if (c.includes('NETHERLANDS') || c.includes('OLANDIJA') || c.includes('NL') || c.includes('HOLLAND')) return 'Olandija';
+  if (c.includes('AUSTRIA') || c.includes('AT')) return 'Austrija';
+  if (c.includes('ITALY') || c.includes('IT')) return 'Italija';
+  if (c.includes('SPAIN') || c.includes('ES')) return 'Ispanija';
+  if (c.includes('POLAND') || c.includes('PL')) return 'Lenkija';
+  if (c.includes('LITHUANIA') || c.includes('LT')) return 'Lietuva';
+  if (c.includes('CZECH') || c.includes('CZ')) return 'Čekija';
+  if (c.includes('SWEDEN') || c.includes('SE')) return 'Švedija';
+  if (c.includes('SWITZERLAND') || c.includes('CH')) return 'Šveicarija';
+  return 'Europa';
+}
+
+function parseNumber(str: string): number | null {
+  if (!str) return null;
+  // Remove all non-digit characters except decimal separators
+  const cleaned = str.replace(/[^\d]/g, '');
+  const num = parseInt(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+// ===== THEPARKING PARSING =====
+function parseTheParkingHtml(html: string, brand: string, model: string): CarListing[] {
+  const listings: CarListing[] = [];
+  const isAllModels = !model || model === '*';
+  
+  console.log('Parsing TheParking HTML...');
+  
+  // TheParking has car listings in specific format
+  // Look for listing cards - they have pattern: price, details, link to detail page
+  
+  // Extract all listing blocks - look for price patterns followed by car info
+  // Pattern: €XX,XXX or XX.XXX € followed by specs
+  
+  // First, find all detail page links
+  const detailLinkPattern = /href=["']((?:https?:)?\/\/[^"']*theparking[^"']*\/used-cars-detail\/[^"']+)["']/gi;
+  const detailLinks: string[] = [];
+  let linkMatch;
+  while ((linkMatch = detailLinkPattern.exec(html)) !== null) {
+    let url = linkMatch[1];
+    if (url.startsWith('//')) url = 'https:' + url;
+    if (!detailLinks.includes(url)) detailLinks.push(url);
+  }
+  
+  console.log(`Found ${detailLinks.length} detail links`);
+  
+  // Extract images - only cloud.leparking.fr which are actual car photos
+  const imagePattern = /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi;
+  const images = html.match(imagePattern) || [];
+  const uniqueImages = [...new Set(images)].filter(img => 
+    !img.includes('logo') && !img.includes('icon') && !img.includes('modele.')
+  );
+  
+  console.log(`Found ${uniqueImages.length} unique images`);
+  
+  // Extract car data from listing cards
+  // Look for patterns: "Brand Model ... XXXX € ... XXXX km ... XXXX"
+  
+  // Extract prices (pattern: XX.XXX € or € XX,XXX or just numbers before €)
+  const pricePattern = /(\d{1,3}[.,\s]?\d{3})\s*€|€\s*(\d{1,3}[.,\s]?\d{3})/g;
+  const prices: number[] = [];
+  let priceMatch;
+  while ((priceMatch = pricePattern.exec(html)) !== null) {
+    const priceStr = priceMatch[1] || priceMatch[2];
+    const price = parseNumber(priceStr);
+    if (price && price >= 1000 && price < 200000) {
+      prices.push(price);
+    }
+  }
+  
+  // Extract years (4-digit years 2000-2025)
+  const yearPattern = /\b(20[0-2]\d)\b/g;
+  const years: number[] = [];
+  let yearMatch;
+  while ((yearMatch = yearPattern.exec(html)) !== null) {
+    const year = parseInt(yearMatch[1]);
+    if (year >= 2000 && year <= 2025) {
+      years.push(year);
+    }
+  }
+  
+  // Extract mileage (XX.XXX km or XXX XXX km)
+  const mileagePattern = /(\d{1,3}[.,\s]?\d{3})\s*(?:km|Km|KM)/g;
+  const mileages: number[] = [];
+  let mileageMatch;
+  while ((mileageMatch = mileagePattern.exec(html)) !== null) {
+    const km = parseNumber(mileageMatch[1]);
+    if (km && km >= 1000 && km < 500000) {
+      mileages.push(km);
+    }
+  }
+  
+  // Extract fuel types
+  const fuelPattern = /\b(Diesel|Petrol|Benzin|Hybrid|Electric|Elektro|LPG)\b/gi;
+  const fuels = html.match(fuelPattern) || [];
+  
+  // Extract countries (look for common patterns)
+  const countryPattern = /\b(Germany|Deutschland|Belgium|Belgique|France|Netherlands|Holland|Austria|Österreich|Italy|Italia|Spain|España|Poland|Polska)\b/gi;
+  const countries = html.match(countryPattern) || [];
+  
+  // Create listings from extracted data
+  // Match data by index (imperfect but works for list pages)
+  const numListings = Math.min(detailLinks.length, Math.max(prices.length, 5), 25);
+  
+  console.log(`Creating ${numListings} listings from extracted data`);
+  
+  for (let i = 0; i < numListings; i++) {
+    const detailUrl = detailLinks[i];
+    if (!detailUrl) continue;
+    
+    // Extract listing ID from URL
+    const idMatch = detailUrl.match(/\/([A-Z0-9]+)\.html$/i) || 
+                    detailUrl.match(/_(\d{10,})\./);
+    const externalId = idMatch ? `theparking-${idMatch[1]}` : `theparking-${Date.now()}-${i}`;
+    
+    // Try to extract model from URL if not provided
+    let extractedModel = model;
+    if (isAllModels) {
+      const urlMatch = detailUrl.match(/used-cars-detail\/[^\/]+\/([^\/]+)/i);
+      if (urlMatch) {
+        const urlParts = urlMatch[1].split('-');
+        extractedModel = urlParts[0] || '';
+      }
+    }
+    
+    const listing: CarListing = {
+      external_id: externalId,
+      title: `${brand} ${extractedModel || model || ''} ${years[i] || 2022}`.trim(),
+      brand: normalizeBrand(brand),
+      model: extractedModel || model || '',
+      year: years[i] || 2022,
+      price: prices[i] || 0,
+      mileage: mileages[i] || null,
+      fuel: fuels[i] ? normalizeFuel(fuels[i]) : 'Dyzelinas',
+      transmission: 'Automatinė',
+      location: null,
+      country: countries[i] ? normalizeCountry(countries[i]) : 'Europa',
+      source: 'TheParking',
+      source_url: 'https://theparking.eu',
+      listing_url: detailUrl,
+      image: uniqueImages[i] || null,
+    };
+    
+    // Only add if we have a valid price
+    if (listing.price > 0) {
+      listings.push(listing);
+    }
+  }
+  
+  console.log(`Created ${listings.length} valid TheParking listings`);
+  return listings;
+}
+
+// ===== SCHADEAUTOS PARSING =====
+function parseSchadeautosHtml(html: string, brand: string, model: string): CarListing[] {
+  const listings: CarListing[] = [];
+  const isAllModels = !model || model === '*';
+  
+  console.log('Parsing Schadeautos HTML...');
+  
+  // Schadeautos has listings in card format
+  // Look for /en/car/ID links
+  const detailLinkPattern = /href=["'](\/en\/car\/\d+)["']/gi;
+  const detailLinks: string[] = [];
+  let linkMatch;
+  while ((linkMatch = detailLinkPattern.exec(html)) !== null) {
+    const url = `https://www.schadeautos.nl${linkMatch[1]}`;
+    if (!detailLinks.includes(url)) detailLinks.push(url);
+  }
+  
+  console.log(`Found ${detailLinks.length} detail links`);
+  
+  // Extract images from schadeautos CDN
+  const imagePattern = /https:\/\/www\.schadeautos\.nl\/cache\/picture\/\d+\/\d+\/[a-f0-9]+(?:~v\d+)?\.jpg/gi;
+  const images = html.match(imagePattern) || [];
+  
+  // Get largest versions of images
+  const imageMap = new Map<string, string>();
+  for (const img of images) {
+    const hashMatch = img.match(/\/(\d+)\/([a-f0-9]+)/);
+    if (hashMatch) {
+      const hash = hashMatch[2];
+      const size = parseInt(hashMatch[1]) || 0;
+      const existing = imageMap.get(hash);
+      if (!existing || size > 400) {
+        // Convert to 1200 size for best quality
+        imageMap.set(hash, img.replace(/\/\d+\/([a-f0-9]+)/, '/1200/$1'));
+      }
+    }
+  }
+  const uniqueImages = [...imageMap.values()];
+  
+  console.log(`Found ${uniqueImages.length} unique images`);
+  
+  // Extract prices (€ XX.XXX format)
+  const pricePattern = /€\s*(\d{1,3}[.,]?\d{3})|(\d{1,3}[.,]\d{3})\s*€/g;
+  const prices: number[] = [];
+  let priceMatch;
+  while ((priceMatch = pricePattern.exec(html)) !== null) {
+    const priceStr = priceMatch[1] || priceMatch[2];
+    const price = parseNumber(priceStr);
+    if (price && price >= 500 && price < 100000) {
+      prices.push(price);
+    }
+  }
+  
+  // Extract years
+  const yearPattern = /\b(20[0-2]\d)\b/g;
+  const years: number[] = [];
+  let yearMatch;
+  while ((yearMatch = yearPattern.exec(html)) !== null) {
+    const year = parseInt(yearMatch[1]);
+    if (year >= 2000 && year <= 2025) {
+      years.push(year);
+    }
+  }
+  
+  // Extract mileage
+  const mileagePattern = /(\d{1,3}[.,]?\d{3})\s*km/gi;
+  const mileages: number[] = [];
+  let mileageMatch;
+  while ((mileageMatch = mileagePattern.exec(html)) !== null) {
+    const km = parseNumber(mileageMatch[1]);
+    if (km && km >= 1000 && km < 500000) {
+      mileages.push(km);
+    }
+  }
+  
+  // Extract fuel types
+  const fuelPattern = /\b(Diesel|Petrol|Benzine|Hybrid|Electric|LPG)\b/gi;
+  const fuels = html.match(fuelPattern) || [];
+  
+  // Create listings
+  const numListings = Math.min(detailLinks.length, 25);
+  
+  console.log(`Creating ${numListings} listings`);
+  
+  for (let i = 0; i < numListings; i++) {
+    const detailUrl = detailLinks[i];
+    if (!detailUrl) continue;
+    
+    const idMatch = detailUrl.match(/\/car\/(\d+)/);
+    const externalId = idMatch ? `schadeautos-${idMatch[1]}` : `schadeautos-${Date.now()}-${i}`;
+    
+    const listing: CarListing = {
+      external_id: externalId,
+      title: `${brand} ${model || ''} ${years[i] || 2022}`.trim(),
+      brand: normalizeBrand(brand),
+      model: model || '',
+      year: years[i] || 2022,
+      price: prices[i] || 0,
+      mileage: mileages[i] || null,
+      fuel: fuels[i] ? normalizeFuel(fuels[i]) : 'Dyzelinas',
+      transmission: 'Automatinė',
+      location: 'Olandija',
+      country: 'Olandija',
+      source: 'Schadeautos',
+      source_url: 'https://schadeautos.nl',
+      listing_url: detailUrl,
+      image: uniqueImages[i] || null,
+    };
+    
+    if (listing.price > 0) {
+      listings.push(listing);
+    }
+  }
+  
+  console.log(`Created ${listings.length} valid Schadeautos listings`);
+  return listings;
+}
+
+// ===== MAIN SCRAPING FUNCTIONS =====
+async function scrapeWithFirecrawl(firecrawlKey: string, url: string): Promise<string> {
+  try {
+    console.log(`Scraping with Firecrawl: ${url}`);
+    
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firecrawlKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        formats: ['html', 'rawHtml'],
+        onlyMainContent: false,
+        waitFor: 5000,
+        timeout: 30000,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      console.error('Firecrawl error:', error);
+      return '';
+    }
+    
+    const data = await response.json();
+    const html = data.data?.rawHtml || data.data?.html || data.rawHtml || data.html || '';
+    
+    // Check for blocking
+    if (html.includes('Zugriff verweigert') || 
+        html.includes('Access Denied') || 
+        html.includes('captcha') ||
+        html.includes('blocked')) {
+      console.log('Firecrawl request was blocked');
+      return '';
+    }
+    
+    console.log(`Firecrawl got ${html.length} bytes`);
+    return html;
+  } catch (error) {
+    console.error('Firecrawl error:', error);
+    return '';
+  }
+}
+
+async function scrapeTheParking(firecrawlKey: string, brand: string, model: string, isAllModels: boolean): Promise<CarListing[]> {
+  const searchUrl = isAllModels 
+    ? `https://www.theparking.eu/used-cars/${brand.toLowerCase()}.html`
+    : `https://www.theparking.eu/used-cars/${brand.toLowerCase()}-${model.toLowerCase().replace(/\s+/g, '-')}.html`;
+  
+  console.log(`Scraping TheParking: ${searchUrl}`);
+  
+  const html = await scrapeWithFirecrawl(firecrawlKey, searchUrl);
+  if (!html || html.length < 1000) {
+    console.log('TheParking: No valid HTML received');
+    return [];
+  }
+  
+  return parseTheParkingHtml(html, brand, isAllModels ? '' : model);
+}
+
+async function scrapeSchadeautos(firecrawlKey: string, brand: string, model: string, isAllModels: boolean): Promise<CarListing[]> {
+  const searchUrl = isAllModels 
+    ? `https://www.schadeautos.nl/en/cars?make=${brand.toLowerCase()}`
+    : `https://www.schadeautos.nl/en/cars?make=${brand.toLowerCase()}&model=${model.toLowerCase()}`;
+  
+  console.log(`Scraping Schadeautos: ${searchUrl}`);
+  
+  const html = await scrapeWithFirecrawl(firecrawlKey, searchUrl);
+  if (!html || html.length < 1000) {
+    console.log('Schadeautos: No valid HTML received');
+    return [];
+  }
+  
+  // Check if redirected to home page (blocking)
+  if (html.includes('<body class="home') || 
+      (html.includes('Buy Damaged Cars') && !html.includes('/en/car/'))) {
+    console.log('Schadeautos: Redirected to home page (blocked)');
+    return [];
+  }
+  
+  return parseSchadeautosHtml(html, brand, isAllModels ? '' : model);
+}
+
+// ===== MAIN HANDLER =====
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -54,6 +448,7 @@ Deno.serve(async (req) => {
     }
 
     if (!firecrawlKey) {
+      console.error('Firecrawl API key not configured');
       return new Response(
         JSON.stringify({ success: false, error: 'Firecrawl API key not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -63,32 +458,36 @@ Deno.serve(async (req) => {
     const isAllModels = !model || model === '*';
     const allListings: CarListing[] = [];
 
-    // Scrape sources sequentially with delay to avoid rate limits
-    // ===== SOURCE 1: TheParking.eu =====
+    console.log(`\n===== SCRAPING ${brand} ${isAllModels ? '(all models)' : model} =====\n`);
+
+    // Scrape sources with delay between them
     const theParkingListings = await scrapeTheParking(firecrawlKey, brand, model, isAllModels);
     allListings.push(...theParkingListings);
+    console.log(`TheParking: ${theParkingListings.length} listings`);
 
-    // Small delay between sources to help with rate limiting
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Delay between sources to respect rate limits
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // ===== SOURCE 2: Schadeautos.nl =====
     const schadeautosListings = await scrapeSchadeautos(firecrawlKey, brand, model, isAllModels);
     allListings.push(...schadeautosListings);
+    console.log(`Schadeautos: ${schadeautosListings.length} listings`);
 
-    console.log(`Total found: ${allListings.length} listings (TheParking: ${theParkingListings.length}, Schadeautos: ${schadeautosListings.length})`);
+    console.log(`\n===== TOTAL: ${allListings.length} listings =====\n`);
 
+    // Save to database
     if (allListings.length > 0) {
-      // Upsert listings
       const { error: upsertError } = await supabase
         .from('car_listings')
         .upsert(allListings, { onConflict: 'external_id,source' });
 
       if (upsertError) {
-        console.error('Upsert error:', upsertError);
+        console.error('Database upsert error:', upsertError);
+      } else {
+        console.log(`Saved ${allListings.length} listings to database`);
       }
     }
 
-    // Return fresh listings from DB for this brand/model
+    // Return fresh listings from DB
     let query = supabase
       .from('car_listings')
       .select('*')
@@ -103,7 +502,16 @@ Deno.serve(async (req) => {
       .limit(50);
 
     return new Response(
-      JSON.stringify({ success: true, data: freshListings || [], cached: false, count: allListings.length }),
+      JSON.stringify({ 
+        success: true, 
+        data: freshListings || [], 
+        cached: false, 
+        count: allListings.length,
+        sources: {
+          theparking: theParkingListings.length,
+          schadeautos: schadeautosListings.length,
+        }
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
@@ -114,354 +522,3 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-async function scrapeTheParking(firecrawlKey: string, brand: string, model: string, isAllModels: boolean): Promise<CarListing[]> {
-  try {
-    const searchUrl = isAllModels 
-      ? `https://www.theparking.eu/used-cars/${brand.toLowerCase()}.html`
-      : `https://www.theparking.eu/used-cars/${brand.toLowerCase()}-${model.toLowerCase()}.html`;
-    
-    console.log(`Scraping TheParking for ${brand} ${isAllModels ? '(all models)' : model}: ${searchUrl}`);
-
-    const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${firecrawlKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: searchUrl,
-        formats: ['markdown', 'links', 'html'],
-        onlyMainContent: true,
-        waitFor: 3000,
-      }),
-    });
-
-    const scrapeData = await scrapeResponse.json();
-
-    if (!scrapeResponse.ok) {
-      console.error('TheParking scrape error:', scrapeData.error);
-      return [];
-    }
-
-    return parseTheParkingListings(scrapeData, brand, isAllModels ? '' : model);
-  } catch (error) {
-    console.error('TheParking error:', error);
-    return [];
-  }
-}
-
-async function scrapeSchadeautos(firecrawlKey: string, brand: string, model: string, isAllModels: boolean): Promise<CarListing[]> {
-  try {
-    // Schadeautos.nl URL format: /en/cars?make=bmw or /en/cars?make=bmw&model=x5
-    const searchUrl = isAllModels 
-      ? `https://www.schadeautos.nl/en/cars?make=${brand.toLowerCase()}`
-      : `https://www.schadeautos.nl/en/cars?make=${brand.toLowerCase()}&model=${model.toLowerCase()}`;
-    
-    console.log(`Scraping Schadeautos for ${brand} ${isAllModels ? '(all models)' : model}: ${searchUrl}`);
-
-    const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${firecrawlKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: searchUrl,
-        formats: ['markdown', 'links', 'html'],
-        onlyMainContent: true,
-        waitFor: 3000,
-      }),
-    });
-
-    const scrapeData = await scrapeResponse.json();
-
-    if (!scrapeResponse.ok) {
-      console.error('Schadeautos scrape error:', scrapeData.error);
-      return [];
-    }
-
-    return parseSchadeautosListings(scrapeData, brand, isAllModels ? '' : model);
-  } catch (error) {
-    console.error('Schadeautos error:', error);
-    return [];
-  }
-}
-
-function parseTheParkingListings(scrapeData: any, brand: string, model: string): CarListing[] {
-  const markdown = scrapeData.data?.markdown || scrapeData.markdown || '';
-  const html = scrapeData.data?.html || scrapeData.html || '';
-  const links = scrapeData.data?.links || scrapeData.links || [];
-  
-  const listings: CarListing[] = [];
-  
-  // Find all detail page links
-  const detailLinks: string[] = links.filter((link: string) => 
-    link.includes('/used-cars-detail/') || 
-    link.includes('theparking.eu/used-cars-detail')
-  );
-  
-  console.log(`TheParking: Found ${detailLinks.length} detail links`);
-  
-  // Extract images from HTML with multiple patterns for TheParking
-  const imagePatterns = [
-    /https:\/\/cloud\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/scalethumb\.leparking\.fr\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s)>]*leparking[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s)>]*theparking[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-    /src=["']([^"']+\.(?:jpg|jpeg|png|webp))[^"']*["']/gi,
-  ];
-  
-  let allImageMatches: string[] = [];
-  for (const pattern of imagePatterns) {
-    const matches = html.match(pattern) || [];
-    allImageMatches.push(...matches);
-  }
-  
-  // Also extract from img src attributes
-  const imgSrcRegex = /<img[^>]+src=["']([^"']+)["']/gi;
-  let imgMatch;
-  while ((imgMatch = imgSrcRegex.exec(html)) !== null) {
-    if (imgMatch[1] && (imgMatch[1].includes('jpg') || imgMatch[1].includes('jpeg') || imgMatch[1].includes('png') || imgMatch[1].includes('webp'))) {
-      allImageMatches.push(imgMatch[1]);
-    }
-  }
-  
-  // Filter and dedupe images
-  const allImages: string[] = [...new Set(allImageMatches)]
-    .filter(img => !img.includes('logo') && !img.includes('icon') && !img.includes('flag') && img.length > 20)
-    .map(img => img.startsWith('//') ? `https:${img}` : img);
-  
-  console.log(`TheParking: Found ${allImages.length} images`);
-  
-  // Parse price, year, mileage patterns from markdown
-  const pricePattern = /(\d{1,3}[,.]?\d{3})\s*€/g;
-  const yearPattern = /\b(20[0-2]\d|201\d|200\d)\b/g;
-  const kmPattern = /(\d{1,3}[,.]?\d{3})\s*[Kk]m/g;
-  const fuelPattern = /(Diesel|Petrol|Hybrid|Electric|Benzinas|Dyzelinas|Benzin|Elektro)/gi;
-  
-  const prices: number[] = [];
-  let priceMatch;
-  while ((priceMatch = pricePattern.exec(markdown)) !== null) {
-    const price = parseInt(priceMatch[1].replace(/[,.]/g, ''));
-    if (price > 500 && price < 500000) {
-      prices.push(price);
-    }
-  }
-  
-  const years: number[] = [];
-  let yearMatch;
-  while ((yearMatch = yearPattern.exec(markdown)) !== null) {
-    const year = parseInt(yearMatch[1]);
-    if (year >= 2000 && year <= 2025) {
-      years.push(year);
-    }
-  }
-  
-  const mileages: number[] = [];
-  let kmMatch;
-  while ((kmMatch = kmPattern.exec(markdown)) !== null) {
-    mileages.push(parseInt(kmMatch[1].replace(/[,.]/g, '')));
-  }
-  
-  const fuels: string[] = [];
-  let fuelMatch;
-  while ((fuelMatch = fuelPattern.exec(markdown)) !== null) {
-    fuels.push(fuelMatch[1]);
-  }
-  
-  const countryPattern = /\b(GERMANY|BELGIUM|FRANCE|NETHERLANDS|AUSTRIA|ITALY|SPAIN|POLAND|LITHUANIA|CZECH|VOKIETIJA|BELGIJA|PRANCŪZIJA|OLANDIJA)\b/gi;
-  const countries: string[] = [];
-  let countryMatch;
-  while ((countryMatch = countryPattern.exec(markdown)) !== null) {
-    countries.push(countryMatch[1].toUpperCase());
-  }
-  
-  const numListings = Math.min(detailLinks.length, prices.length, 20);
-  
-  for (let i = 0; i < numListings; i++) {
-    const detailUrl = detailLinks[i];
-    const price = prices[i];
-    const year = years[i] || 2020;
-    const mileage = mileages[i] || null;
-    const fuel = fuels[i] || 'Diesel';
-    const country = countries[i] || 'Europa';
-    const image = allImages[i] || null;
-    
-    const idMatch = detailUrl.match(/\/([A-Z0-9]+)\.html$/i);
-    const externalId = idMatch ? `theparking-${idMatch[1]}` : `theparking-${Date.now()}-${i}`;
-    
-    listings.push({
-      external_id: externalId,
-      title: `${brand} ${model} ${year}`,
-      brand: brand,
-      model: model,
-      year: year,
-      price: price,
-      mileage: mileage,
-      fuel: normalizeFuel(fuel),
-      transmission: 'Automatinė',
-      location: null,
-      country: normalizeCountry(country),
-      source: 'TheParking',
-      source_url: 'https://theparking.eu',
-      listing_url: detailUrl.startsWith('http') ? detailUrl : `https://www.theparking.eu${detailUrl}`,
-      image: image,
-    });
-  }
-  
-  return listings;
-}
-
-function parseSchadeautosListings(scrapeData: any, brand: string, model: string): CarListing[] {
-  const markdown = scrapeData.data?.markdown || scrapeData.markdown || '';
-  const html = scrapeData.data?.html || scrapeData.html || '';
-  const links = scrapeData.data?.links || scrapeData.links || [];
-  
-  const listings: CarListing[] = [];
-  
-  // Find car detail links - Schadeautos uses /en/car/ID format
-  const detailLinks: string[] = links.filter((link: string) => 
-    link.includes('/en/car/') || link.includes('schadeautos.nl/en/car/')
-  );
-  
-  console.log(`Schadeautos: Found ${detailLinks.length} detail links`);
-  
-  // Extract images with multiple patterns
-  const imagePatterns = [
-    /https:\/\/[^"'\s)>]*schadeautos[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s)>]*cdn[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s)>]*cloudinary[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-    /https:\/\/[^"'\s)>]*imgix[^"'\s)>]*\.(?:jpg|jpeg|png|webp)/gi,
-  ];
-  
-  let allImageMatches: string[] = [];
-  for (const pattern of imagePatterns) {
-    const matches = html.match(pattern) || [];
-    allImageMatches.push(...matches);
-  }
-  
-  // Also extract from img src attributes
-  const imgSrcRegex = /<img[^>]+src=["']([^"']+)["']/gi;
-  let imgMatch;
-  while ((imgMatch = imgSrcRegex.exec(html)) !== null) {
-    if (imgMatch[1] && (imgMatch[1].includes('jpg') || imgMatch[1].includes('jpeg') || imgMatch[1].includes('png') || imgMatch[1].includes('webp'))) {
-      allImageMatches.push(imgMatch[1]);
-    }
-  }
-  
-  // Filter and dedupe images
-  const allImages: string[] = [...new Set(allImageMatches)]
-    .filter(img => !img.includes('logo') && !img.includes('icon') && !img.includes('flag') && !img.includes('avatar') && img.length > 20)
-    .map(img => img.startsWith('//') ? `https:${img}` : img);
-  
-  console.log(`Schadeautos: Found ${allImages.length} images`);
-  
-  // Parse prices (€ format)
-  const pricePattern = /€\s*(\d{1,3}[.,]?\d{0,3}[.,]?\d{0,3})/g;
-  const altPricePattern = /(\d{1,3}[.,]\d{3})\s*€/g;
-  
-  const prices: number[] = [];
-  let priceMatch;
-  while ((priceMatch = pricePattern.exec(markdown)) !== null) {
-    const price = parseInt(priceMatch[1].replace(/[,.]/g, ''));
-    if (price > 500 && price < 500000) {
-      prices.push(price);
-    }
-  }
-  while ((priceMatch = altPricePattern.exec(markdown)) !== null) {
-    const price = parseInt(priceMatch[1].replace(/[,.]/g, ''));
-    if (price > 500 && price < 500000 && !prices.includes(price)) {
-      prices.push(price);
-    }
-  }
-  
-  // Parse years
-  const yearPattern = /\b(20[0-2]\d|201\d|200\d)\b/g;
-  const years: number[] = [];
-  let yearMatch;
-  while ((yearMatch = yearPattern.exec(markdown)) !== null) {
-    const year = parseInt(yearMatch[1]);
-    if (year >= 2000 && year <= 2025) {
-      years.push(year);
-    }
-  }
-  
-  // Parse mileage (km)
-  const kmPattern = /(\d{1,3}[.,]?\d{3})\s*km/gi;
-  const mileages: number[] = [];
-  let kmMatch;
-  while ((kmMatch = kmPattern.exec(markdown)) !== null) {
-    mileages.push(parseInt(kmMatch[1].replace(/[,.]/g, '')));
-  }
-  
-  // Parse fuel types
-  const fuelPattern = /(Diesel|Petrol|Benzine|Hybrid|Electric|LPG)/gi;
-  const fuels: string[] = [];
-  let fuelMatch;
-  while ((fuelMatch = fuelPattern.exec(markdown)) !== null) {
-    fuels.push(fuelMatch[1]);
-  }
-  
-  const numListings = Math.min(detailLinks.length, Math.max(prices.length, 1), 20);
-  
-  for (let i = 0; i < numListings; i++) {
-    const detailUrl = detailLinks[i];
-    const price = prices[i] || 0;
-    const year = years[i] || 2020;
-    const mileage = mileages[i] || null;
-    const fuel = fuels[i] || 'Diesel';
-    const image = allImages[i] || null;
-    
-    // Extract ID from URL
-    const idMatch = detailUrl.match(/\/car\/(\d+)/i);
-    const externalId = idMatch ? `schadeautos-${idMatch[1]}` : `schadeautos-${Date.now()}-${i}`;
-    
-    if (price > 0) {
-      listings.push({
-        external_id: externalId,
-        title: `${brand} ${model || ''} ${year}`.trim(),
-        brand: brand,
-        model: model || '',
-        year: year,
-        price: price,
-        mileage: mileage,
-        fuel: normalizeFuel(fuel),
-        transmission: 'Automatinė',
-        location: 'Olandija',
-        country: 'Olandija',
-        source: 'Schadeautos',
-        source_url: 'https://schadeautos.nl',
-        listing_url: detailUrl.startsWith('http') ? detailUrl : `https://www.schadeautos.nl${detailUrl}`,
-        image: image,
-      });
-    }
-  }
-  
-  return listings;
-}
-
-function normalizeFuel(fuel: string): string {
-  const f = fuel.toLowerCase();
-  if (f.includes('diesel') || f.includes('dyzel')) return 'Dyzelinas';
-  if (f.includes('petrol') || f.includes('benzin')) return 'Benzinas';
-  if (f.includes('hybrid')) return 'Hibridas';
-  if (f.includes('electric') || f.includes('elektro')) return 'Elektra';
-  if (f.includes('lpg')) return 'LPG';
-  return 'Dyzelinas';
-}
-
-function normalizeCountry(country: string): string {
-  const c = country.toUpperCase();
-  if (c.includes('GERMANY') || c.includes('VOKIETIJA')) return 'Vokietija';
-  if (c.includes('BELGIUM') || c.includes('BELGIJA')) return 'Belgija';
-  if (c.includes('FRANCE') || c.includes('PRANCŪZIJA')) return 'Prancūzija';
-  if (c.includes('NETHERLANDS') || c.includes('OLANDIJA')) return 'Olandija';
-  if (c.includes('AUSTRIA')) return 'Austrija';
-  if (c.includes('ITALY')) return 'Italija';
-  if (c.includes('SPAIN')) return 'Ispanija';
-  if (c.includes('POLAND')) return 'Lenkija';
-  if (c.includes('LITHUANIA')) return 'Lietuva';
-  if (c.includes('CZECH')) return 'Čekija';
-  return 'Europa';
-}
