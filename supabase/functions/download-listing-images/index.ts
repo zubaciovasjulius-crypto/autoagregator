@@ -1082,6 +1082,43 @@ function getFirecrawlOptions(portal: string, url: string) {
   return baseOptions;
 }
 
+// ========== DIRECT FETCH FALLBACK (FREE) ==========
+async function scrapeWithDirectFetch(url: string, portal: string): Promise<string | null> {
+  try {
+    console.log('Trying direct fetch for:', url);
+
+    // Use mobile URL for autoplius if not already mobile
+    let fetchUrl = url;
+    if (portal === 'autoplius' && !url.includes('m.autoplius')) {
+      fetchUrl = url.replace('://autoplius.lt', '://m.autoplius.lt')
+                    .replace('://www.autoplius.lt', '://m.autoplius.lt');
+    }
+
+    const response = await fetch(fetchUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'lt-LT,lt;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('Direct fetch error:', response.status);
+      return null;
+    }
+
+    const html = await response.text();
+    console.log('Direct fetch got', html.length, 'bytes');
+    return html;
+  } catch (error) {
+    console.error('Direct fetch error:', error);
+    return null;
+  }
+}
+
 // ========== SCRAPINGBEE PROXY FALLBACK ==========
 async function scrapeWithScrapingBee(url: string, portal: string): Promise<string | null> {
   const apiKey = Deno.env.get('SCRAPINGBEE_API_KEY');
@@ -1179,39 +1216,59 @@ serve(async (req) => {
       );
     }
 
-    // Get portal-specific options
-    const firecrawlOptions = getFirecrawlOptions(portal, listingUrl);
-
-    // Call Firecrawl API
-    console.log('Calling Firecrawl...');
-
     let html = '';
     let usedProxy = false;
+    let fetchMethod = '';
 
-    const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(firecrawlOptions),
-    });
-
-    if (firecrawlResponse.ok) {
-      const firecrawlData = await firecrawlResponse.json();
-      html = firecrawlData.data?.html || firecrawlData.data?.rawHtml || '';
-      console.log('Firecrawl got', html.length, 'bytes');
-    } else {
-      console.error('Firecrawl error:', firecrawlResponse.status);
+    // Strategy 1: Try direct fetch first (FREE!)
+    console.log('Strategy 1: Trying direct fetch (free)...');
+    const directHtml = await scrapeWithDirectFetch(listingUrl, portal);
+    if (directHtml && !isBlockedResponse(directHtml, portal)) {
+      html = directHtml;
+      fetchMethod = 'direct';
+      console.log('Direct fetch successful!');
     }
 
-    // Check if blocked and try proxy fallback
+    // Strategy 2: Try Firecrawl if direct fetch failed
+    if (!html && apiKey) {
+      console.log('Strategy 2: Trying Firecrawl...');
+      const firecrawlOptions = getFirecrawlOptions(portal, listingUrl);
+
+      try {
+        const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(firecrawlOptions),
+        });
+
+        if (firecrawlResponse.ok) {
+          const firecrawlData = await firecrawlResponse.json();
+          const firecrawlHtml = firecrawlData.data?.html || firecrawlData.data?.rawHtml || '';
+          if (firecrawlHtml && !isBlockedResponse(firecrawlHtml, portal)) {
+            html = firecrawlHtml;
+            fetchMethod = 'firecrawl';
+            console.log('Firecrawl got', html.length, 'bytes');
+          }
+        } else {
+          const errorText = await firecrawlResponse.text();
+          console.log('Firecrawl failed:', errorText.substring(0, 100));
+        }
+      } catch (e) {
+        console.error('Firecrawl error:', e);
+      }
+    }
+
+    // Strategy 3: Try ScrapingBee proxy as last resort
     if (!html || isBlockedResponse(html, portal)) {
-      console.log('Response blocked or empty, trying ScrapingBee proxy...');
+      console.log('Strategy 3: Trying ScrapingBee proxy...');
       const proxyHtml = await scrapeWithScrapingBee(listingUrl, portal);
       if (proxyHtml && !isBlockedResponse(proxyHtml, portal)) {
         html = proxyHtml;
         usedProxy = true;
+        fetchMethod = 'scrapingbee';
         console.log('ScrapingBee successful');
       }
     }
@@ -1248,6 +1305,7 @@ serve(async (req) => {
         success: true,
         images,
         ...details,
+        fetchMethod,
         usedProxy,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
