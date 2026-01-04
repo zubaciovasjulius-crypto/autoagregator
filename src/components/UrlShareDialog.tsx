@@ -101,29 +101,37 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
           images: data.images,
           url: url,
         });
-        
-        // Auto-fill details from scraped data
-        if (data.details) {
-          setDetails({
-            brand: data.details.brand || '',
-            model: data.details.model || '',
-            year: data.details.year || '',
-            mileage: data.details.mileage || '',
-            price: data.details.price || '',
-          });
-        }
+
+        // Auto-fill details from scraped data (support both formats)
+        const detailsSource = data.details || data;
+        setDetails({
+          brand: detailsSource.brand || '',
+          model: detailsSource.model || '',
+          year: detailsSource.year?.toString() || '',
+          mileage: detailsSource.mileage?.toString() || '',
+          price: detailsSource.price?.toString() || '',
+        });
 
         // Select first image by default
         setSelectedImages(new Set([0]));
 
-        toast({
-          title: '✅ Rasta!',
-          description: `Rasta ${data.images.length} nuotraukų`,
-        });
+        // Show warning if portal blocked
+        if (data.warning) {
+          toast({
+            title: '⚠️ Įspėjimas',
+            description: data.warning,
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: '✅ Rasta!',
+            description: `Rasta ${data.images.length} nuotraukų`,
+          });
+        }
       } else {
         toast({
           title: 'Nerasta',
-          description: 'Nuotraukų nerasta šiame puslapyje',
+          description: data.warning || 'Nuotraukų nerasta šiame puslapyje',
           variant: 'destructive',
         });
       }
@@ -649,7 +657,7 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
             <div className="text-center py-8 text-muted-foreground">
               <Link2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p className="text-sm">Įklijuokite skelbimo nuorodą iš bet kurio portalo</p>
-              <p className="text-xs mt-1">Palaikoma: schadeautos.nl, leparking.fr, autoscout24, mobile.de</p>
+              <p className="text-xs mt-1">Palaikoma: autoplius.lt, theparking.eu, schadeautos.nl, mobile.de, autoscout24, otomoto.pl ir kt.</p>
             </div>
           )}
 
