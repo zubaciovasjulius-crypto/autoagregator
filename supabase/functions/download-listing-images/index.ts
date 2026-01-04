@@ -62,6 +62,7 @@ function extractBrandFromTitle(title: string): { brand: string; model: string } 
 
 function detectSource(url: string): string {
   const urlLower = url.toLowerCase();
+  if (urlLower.includes('autoplius.lt')) return 'autoplius';
   if (urlLower.includes('theparking') || urlLower.includes('leparking')) return 'theparking';
   if (urlLower.includes('mobile.de')) return 'mobile.de';
   if (urlLower.includes('schadeautos.nl')) return 'schadeautos';
@@ -389,6 +390,25 @@ function extractImages(html: string, url: string): string[] {
       ];
       for (const pattern of gpPatterns) {
         images.push(...(html.match(pattern) || []));
+      }
+      break;
+      
+    case 'autoplius':
+      // Autoplius.lt uses img.autoplius.lt CDN
+      const autopliusPatterns = [
+        /https:\/\/img\.autoplius\.lt\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+        /https:\/\/[a-z0-9.-]*autoplius\.lt\/[^"'\s)>]+\/photos\/[^"'\s)>]+\.(?:jpg|jpeg|png|webp)/gi,
+      ];
+      for (const pattern of autopliusPatterns) {
+        const matches = html.match(pattern) || [];
+        for (const img of matches) {
+          // Convert to high-res version (remove size suffix, use big/)
+          let highRes = img
+            .replace(/\/s_\d+x\d+\//, '/s_1280x960/')
+            .replace(/\/thumb\//, '/big/')
+            .replace(/_thumb\./, '_big.');
+          images.push(highRes);
+        }
       }
       break;
   }
