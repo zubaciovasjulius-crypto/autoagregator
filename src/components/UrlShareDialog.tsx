@@ -30,6 +30,7 @@ const UrlShareDialog = () => {
   const [scrapedData, setScrapedData] = useState<ScrapedData | null>(null);
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [cleanedImages, setCleanedImages] = useState<Map<number, string>>(new Map());
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; index: number } | null>(null);
   
   // Listing details for message generation
   const [details, setDetails] = useState<ListingDetails>({
@@ -486,6 +487,10 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                       <div key={idx} className="relative group">
                         <button
                           onClick={() => toggleImageSelection(idx)}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setLightboxImage({ url: displayUrl, index: idx });
+                          }}
                           className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all w-full ${
                             isSelected 
                               ? 'border-primary ring-2 ring-primary/30' 
@@ -495,11 +500,18 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                           <img
                             src={displayUrl}
                             alt={`Nuotrauka ${idx + 1}`}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = '/placeholder.svg';
                             }}
                           />
+                          
+                          {/* Zoom hint on hover */}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <span className="text-white text-xs bg-black/50 px-2 py-1 rounded">
+                              2× spustelėk didinti
+                            </span>
+                          </div>
                           
                           {/* Selection indicator */}
                           {isSelected && (
@@ -701,6 +713,68 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
             </div>
           )}
         </div>
+
+        {/* Lightbox Modal */}
+        {lightboxImage && scrapedData && (
+          <div 
+            className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
+            onClick={() => setLightboxImage(null)}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors z-10"
+            >
+              <X className="w-6 h-6 text-white" />
+            </button>
+            
+            {/* Navigation arrows */}
+            {lightboxImage.index > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newIndex = lightboxImage.index - 1;
+                  setLightboxImage({
+                    url: cleanedImages.get(newIndex) || scrapedData.images[newIndex],
+                    index: newIndex
+                  });
+                }}
+                className="absolute left-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-8 h-8 text-white" />
+              </button>
+            )}
+            
+            {lightboxImage.index < scrapedData.images.length - 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newIndex = lightboxImage.index + 1;
+                  setLightboxImage({
+                    url: cleanedImages.get(newIndex) || scrapedData.images[newIndex],
+                    index: newIndex
+                  });
+                }}
+                className="absolute right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <ChevronRight className="w-8 h-8 text-white" />
+              </button>
+            )}
+            
+            {/* Image */}
+            <img
+              src={lightboxImage.url}
+              alt={`Nuotrauka ${lightboxImage.index + 1}`}
+              className="max-w-[90vw] max-h-[90vh] object-contain animate-scale-in"
+              onClick={(e) => e.stopPropagation()}
+            />
+            
+            {/* Image counter */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/60 rounded-full text-white text-sm">
+              {lightboxImage.index + 1} / {scrapedData.images.length}
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
