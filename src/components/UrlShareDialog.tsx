@@ -580,6 +580,17 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                     rows={5}
                     className="font-mono text-sm"
                   />
+                  
+                  {/* Step-by-step instructions */}
+                  <div className="bg-muted/50 rounded-lg p-3 text-sm space-y-2">
+                    <p className="font-medium">Kaip siųsti į Messenger grupę:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                      <li>Nukopijuokite tekstą (mygtukas žemiau)</li>
+                      <li>Atsisiųskite pasirinktas nuotraukas</li>
+                      <li>Atidarykite Messenger ir įkelkite</li>
+                    </ol>
+                  </div>
+                  
                   <div className="flex gap-2">
                     <Button 
                       variant="outline" 
@@ -589,18 +600,40 @@ ${markupPrice.toLocaleString('lt-LT')} €`;
                       📋 Kopijuoti tekstą
                     </Button>
                     <Button
-                      onClick={() => handlePublish('messenger')}
-                      disabled={isPublishing !== null || selectedImages.size === 0}
-                      className="flex-1 gap-2 bg-[#0084FF] hover:bg-[#0084FF]/90"
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      disabled={selectedImages.size === 0}
+                      onClick={() => {
+                        // Download all selected images
+                        const imageUrls = Array.from(selectedImages).map(index => 
+                          cleanedImages.get(index) || scrapedData!.images[index]
+                        );
+                        imageUrls.forEach((url, i) => {
+                          const link = document.createElement('a');
+                          link.href = url;
+                          link.download = `auto_${i + 1}.jpg`;
+                          link.target = '_blank';
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        });
+                        toast({
+                          title: '📥 Atsisiunčiama',
+                          description: `${imageUrls.length} nuotraukų`,
+                        });
+                      }}
                     >
-                      {isPublishing === 'messenger' ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <MessageCircle className="w-4 h-4" />
-                      )}
-                      Siųsti į Messenger
+                      📥 Atsisiųsti ({selectedImages.size})
                     </Button>
                   </div>
+                  
+                  <Button
+                    className="w-full gap-2 bg-[#0084FF] hover:bg-[#0084FF]/90"
+                    onClick={() => window.open('https://www.messenger.com', '_blank')}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Atidaryti Messenger
+                  </Button>
                 </TabsContent>
 
                 {/* Stories Tab */}
