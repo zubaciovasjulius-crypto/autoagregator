@@ -52,7 +52,8 @@ Deno.serve(async (req) => {
     
     console.log('Image fetched, size:', imageBuffer.byteLength, 'bytes');
 
-    // Use Lovable AI Gateway with the image editing model
+    // Get original image dimensions for the prompt
+    // We'll instruct the AI to maintain the same dimensions
     console.log('Sending to AI for watermark removal...');
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -61,14 +62,14 @@ Deno.serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-image-preview',
+        model: 'google/gemini-3-pro-image-preview',
         messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'Remove any watermarks, logos, website names, or text overlays from this car photo. Keep the car, background, and all other details exactly the same. Output only the cleaned image.'
+                text: 'Remove any watermarks, logos, website names, or text overlays from this car photo. IMPORTANT: Maintain the EXACT same resolution and dimensions as the original image. Keep the car, background, and all other details exactly the same with maximum quality. Output only the cleaned high-resolution image.'
               },
               {
                 type: 'image_url',
