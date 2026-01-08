@@ -1,9 +1,80 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Initialize Supabase client
+function getSupabaseClient() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+// Download image and save to storage, return public URL
+async function saveImageToStorage(imageUrl: string, index: number): Promise<string | null> {
+  try {
+    const supabase = getSupabaseClient();
+    
+    // Fetch the image with proper headers
+    const imageResponse = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Referer': new URL(imageUrl).origin + '/',
+      },
+    });
+
+    if (!imageResponse.ok) {
+      console.error(`Failed to fetch image ${index}: ${imageResponse.status}`);
+      return null;
+    }
+
+    const imageBuffer = await imageResponse.arrayBuffer();
+    
+    // Skip tiny images (likely icons/placeholders)
+    if (imageBuffer.byteLength < 5000) {
+      console.log(`Skipping tiny image ${index}: ${imageBuffer.byteLength} bytes`);
+      return null;
+    }
+    
+    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+    
+    // Determine file extension
+    let extension = 'jpg';
+    if (contentType.includes('png')) extension = 'png';
+    else if (contentType.includes('webp')) extension = 'webp';
+
+    // Create unique filename
+    const filename = `scraped/${Date.now()}_${index}_${Math.random().toString(36).substring(7)}.${extension}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('listing-images')
+      .upload(filename, imageBuffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error(`Upload error for image ${index}:`, uploadError.message);
+      return null;
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('listing-images')
+      .getPublicUrl(filename);
+
+    console.log(`Saved image ${index}: ${urlData.publicUrl} (${imageBuffer.byteLength} bytes)`);
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error(`Error saving image ${index}:`, error);
+    return null;
+  }
+}
 
 // ========== PORTAL DETECTION ==========
 function detectPortal(url: string): string {
@@ -1319,12 +1390,30 @@ serve(async (req) => {
 
     console.log('Extracted', images.length, 'images');
     console.log('Details:', JSON.stringify(details));
+
+    // Download and save images to storage (max 30 images)
+    const imagesToSave = images.slice(0, 30);
+    console.log(`Saving ${imagesToSave.length} images to storage...`);
+    
+    const savedImages: string[] = [];
+    for (let i = 0; i < imagesToSave.length; i++) {
+      const savedUrl = await saveImageToStorage(imagesToSave[i], i);
+      if (savedUrl) {
+        savedImages.push(savedUrl);
+      }
+      // Small delay to avoid overwhelming the server
+      if (i < imagesToSave.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    console.log(`Successfully saved ${savedImages.length} images to storage`);
     console.log('='.repeat(60));
 
     return new Response(
       JSON.stringify({
         success: true,
-        images,
+        images: savedImages,
         ...details,
         fetchMethod,
         usedProxy,
