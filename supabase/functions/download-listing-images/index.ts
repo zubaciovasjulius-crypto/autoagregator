@@ -176,10 +176,12 @@ function cleanImageUrl(src: string, portal: string, baseUrl?: string): string | 
       break;
 
     case 'schadeautos':
-      // Upgrade to 1200x900 version
+      // Try to get original/full size version - remove cache sizing
       if (cleanUrl.includes('schadeautos.nl/cache')) {
+        // Try to get full resolution by using largest cache size available
+        cleanUrl = cleanUrl.replace(/\/cache\/picture\/\d+\//, '/cache/picture/1200/');
         cleanUrl = cleanUrl.replace(/\/cache\/\d+x\d+\//, '/cache/1200x900/');
-        cleanUrl = cleanUrl.replace(/\/cache\/\d+\//, '/cache/1200/');
+        cleanUrl = cleanUrl.replace(/\/cache\/(\d{2,3})\//, '/cache/1200/');
       }
       break;
 
