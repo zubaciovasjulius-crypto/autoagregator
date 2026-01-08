@@ -1163,10 +1163,22 @@ async function scrapeWithScrapingBee(url: string, portal: string): Promise<strin
 
 // ========== BLOCKING DETECTION ==========
 function isBlockedResponse(html: string, portal: string): boolean {
-  if (html.length < 1000) return true;
+  if (html.length < 500) return true;
+
+  // For schadeautos, check if we have actual car images in the HTML
+  if (portal === 'schadeautos') {
+    // If we have cache images, it's not blocked
+    if (html.includes('/cache/') && html.includes('.jpg')) {
+      return false;
+    }
+    // If redirected to home page
+    if (html.includes('<body class="home') || (html.includes('Vind jouw schadeauto') && !html.includes('/o/'))) {
+      return true;
+    }
+    return false;
+  }
 
   const blockingPatterns: Record<string, string[]> = {
-    schadeautos: ['Vind jouw schadeauto', 'Welkom bij Schadeautos.nl', '<body class="home'],
     mobile: ['Zugriff verweigert', 'Access Denied', 'captcha', 'blocked', 'robot'],
     autoplius: ['Prašome palaukti', 'captcha', 'robot', 'Draudžiama prieiga'],
     autoscout24: ['Access Denied', 'captcha', 'blocked', 'robot'],
@@ -1229,7 +1241,7 @@ serve(async (req) => {
       console.log('Direct fetch successful!');
     }
 
-    // Strategy 2: Try Firecrawl if direct fetch failed
+    // Strategy 2: Try Firecrawl if direct fetch failed (only if we have API key and credits)
     if (!html && apiKey) {
       console.log('Strategy 2: Trying Firecrawl...');
       const firecrawlOptions = getFirecrawlOptions(portal, listingUrl);
@@ -1244,17 +1256,23 @@ serve(async (req) => {
           body: JSON.stringify(firecrawlOptions),
         });
 
-        if (firecrawlResponse.ok) {
-          const firecrawlData = await firecrawlResponse.json();
+        const firecrawlData = await firecrawlResponse.json();
+        
+        // Check if it's a credits error - log but don't fail
+        if (!firecrawlResponse.ok) {
+          const errorMsg = firecrawlData?.error || 'Unknown error';
+          console.error('Firecrawl error:', errorMsg);
+          // If credits issue, continue to next strategy
+          if (errorMsg.includes('credits') || errorMsg.includes('insufficient')) {
+            console.log('Firecrawl credits exhausted, skipping to next strategy...');
+          }
+        } else {
           const firecrawlHtml = firecrawlData.data?.html || firecrawlData.data?.rawHtml || '';
           if (firecrawlHtml && !isBlockedResponse(firecrawlHtml, portal)) {
             html = firecrawlHtml;
             fetchMethod = 'firecrawl';
             console.log('Firecrawl got', html.length, 'bytes');
           }
-        } else {
-          const errorText = await firecrawlResponse.text();
-          console.log('Firecrawl failed:', errorText.substring(0, 100));
         }
       } catch (e) {
         console.error('Firecrawl error:', e);
