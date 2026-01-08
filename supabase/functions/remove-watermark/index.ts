@@ -62,14 +62,14 @@ Deno.serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-pro-image-preview',
+        model: 'google/gemini-2.5-flash-image-preview',
         messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'Remove any watermarks, logos, website names, or text overlays from this car photo. IMPORTANT: Maintain the EXACT same resolution and dimensions as the original image. Keep the car, background, and all other details exactly the same with maximum quality. Output only the cleaned high-resolution image.'
+                text: 'Edit this car photo: Remove any watermarks, logos, website text, or overlays. Keep the car and background exactly the same. Maintain original image quality and resolution. Return only the edited image.'
               },
               {
                 type: 'image_url',
