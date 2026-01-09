@@ -14,7 +14,15 @@ function getSupabaseClient() {
 }
 
 // Download image and save to storage, return public URL
-async function saveImageToStorage(imageUrl: string, index: number): Promise<string | null> {
+// Skip for portals that block server-side requests (schadeautos, etc.)
+async function saveImageToStorage(imageUrl: string, index: number, portal: string): Promise<string | null> {
+  // These portals block server-side image requests - return original URL
+  const blockedPortals = ['schadeautos', 'autoplius'];
+  if (blockedPortals.includes(portal)) {
+    console.log(`Portal ${portal} blocks server requests - returning original URL: ${imageUrl}`);
+    return imageUrl;
+  }
+
   try {
     const supabase = getSupabaseClient();
     
@@ -29,10 +37,18 @@ async function saveImageToStorage(imageUrl: string, index: number): Promise<stri
 
     if (!imageResponse.ok) {
       console.error(`Failed to fetch image ${index}: ${imageResponse.status}`);
-      return null;
+      // Return original URL as fallback
+      return imageUrl;
     }
 
     const imageBuffer = await imageResponse.arrayBuffer();
+    
+    // Check if we got HTML instead of an image (blocked by hotlink protection)
+    const contentType = imageResponse.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      console.log(`Got HTML instead of image ${index} - hotlink blocked, returning original URL`);
+      return imageUrl;
+    }
     
     // Skip tiny images (likely icons/placeholders)
     if (imageBuffer.byteLength < 5000) {
@@ -40,7 +56,13 @@ async function saveImageToStorage(imageUrl: string, index: number): Promise<stri
       return null;
     }
     
-    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+    // Check for suspiciously uniform sizes (likely placeholder images)
+    // Real images vary in size; blocked images often have same size
+    const suspiciousSizes = [137749, 137814, 137735, 137733, 137828, 137812];
+    if (suspiciousSizes.includes(imageBuffer.byteLength)) {
+      console.log(`Suspicious image size ${imageBuffer.byteLength} - likely blocked, returning original URL`);
+      return imageUrl;
+    }
     
     // Determine file extension
     let extension = 'jpg';
@@ -60,7 +82,7 @@ async function saveImageToStorage(imageUrl: string, index: number): Promise<stri
 
     if (uploadError) {
       console.error(`Upload error for image ${index}:`, uploadError.message);
-      return null;
+      return imageUrl; // Return original URL as fallback
     }
 
     // Get public URL
@@ -72,7 +94,7 @@ async function saveImageToStorage(imageUrl: string, index: number): Promise<stri
     return urlData.publicUrl;
   } catch (error) {
     console.error(`Error saving image ${index}:`, error);
-    return null;
+    return imageUrl; // Return original URL as fallback
   }
 }
 
@@ -1397,12 +1419,13 @@ serve(async (req) => {
     
     const savedImages: string[] = [];
     for (let i = 0; i < imagesToSave.length; i++) {
-      const savedUrl = await saveImageToStorage(imagesToSave[i], i);
+      const savedUrl = await saveImageToStorage(imagesToSave[i], i, portal);
       if (savedUrl) {
         savedImages.push(savedUrl);
       }
-      // Small delay to avoid overwhelming the server
-      if (i < imagesToSave.length - 1) {
+      // Small delay to avoid overwhelming the server (skip for portals that don't need downloading)
+      const skipDelayPortals = ['schadeautos', 'autoplius'];
+      if (!skipDelayPortals.includes(portal) && i < imagesToSave.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
