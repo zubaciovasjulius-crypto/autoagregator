@@ -77,6 +77,102 @@ export type Database = {
         }
         Relationships: []
       }
+      client_request_matches: {
+        Row: {
+          created_at: string
+          id: string
+          listing_id: string
+          proposal_created: boolean
+          request_id: string
+          seen: boolean
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          listing_id: string
+          proposal_created?: boolean
+          request_id: string
+          seen?: boolean
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          listing_id?: string
+          proposal_created?: boolean
+          request_id?: string
+          seen?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_request_matches_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "car_listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_request_matches_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "client_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_requests: {
+        Row: {
+          brand: string
+          client_email: string | null
+          client_name: string
+          client_phone: string | null
+          created_at: string
+          created_by: string
+          id: string
+          max_price: number | null
+          max_year: number | null
+          min_price: number | null
+          min_year: number | null
+          model: string
+          notes: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          brand: string
+          client_email?: string | null
+          client_name: string
+          client_phone?: string | null
+          created_at?: string
+          created_by: string
+          id?: string
+          max_price?: number | null
+          max_year?: number | null
+          min_price?: number | null
+          min_year?: number | null
+          model: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          brand?: string
+          client_email?: string | null
+          client_name?: string
+          client_phone?: string | null
+          created_at?: string
+          created_by?: string
+          id?: string
+          max_price?: number | null
+          max_year?: number | null
+          min_price?: number | null
+          min_year?: number | null
+          model?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       found_listings: {
         Row: {
           brand: string
@@ -169,6 +265,71 @@ export type Database = {
           id?: string
         }
         Relationships: []
+      }
+      proposals: {
+        Row: {
+          car_price: number
+          client_email: string | null
+          client_name: string | null
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          images: string[] | null
+          listing_id: string | null
+          repair_price: number
+          share_token: string
+          status: string
+          title: string
+          total_price: number | null
+          transport_price: number
+          updated_at: string
+        }
+        Insert: {
+          car_price?: number
+          client_email?: string | null
+          client_name?: string | null
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          images?: string[] | null
+          listing_id?: string | null
+          repair_price?: number
+          share_token?: string
+          status?: string
+          title: string
+          total_price?: number | null
+          transport_price?: number
+          updated_at?: string
+        }
+        Update: {
+          car_price?: number
+          client_email?: string | null
+          client_name?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          images?: string[] | null
+          listing_id?: string | null
+          repair_price?: number
+          share_token?: string
+          status?: string
+          title?: string
+          total_price?: number | null
+          transport_price?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposals_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "car_listings"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       saved_cars: {
         Row: {
