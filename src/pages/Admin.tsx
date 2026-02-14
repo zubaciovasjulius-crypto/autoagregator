@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import { RefreshCw, Trash2, ArrowLeft, Loader2, Shield, Database, Users, Check, X } from 'lucide-react';
 import Header from '@/components/Header';
+import ClientRequestsCard from '@/components/admin/ClientRequestsCard';
+import ProposalFormCard from '@/components/admin/ProposalFormCard';
 
 interface ScrapeStatus {
   id: string;
@@ -404,6 +406,16 @@ const Admin = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Client Requests */}
+        <div className="mt-6">
+          <ClientRequestsCard />
+        </div>
+
+        {/* Proposals */}
+        <div className="mt-6">
+          <ProposalFormCard />
+        </div>
 
         {/* Listings Table */}
         <Card className="mt-6">
