@@ -6,7 +6,7 @@ import { useSavedCars } from '@/hooks/useSavedCars';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
-import ForwardToClient from '@/components/ForwardToClient';
+import ForwardToClient from '@/components/ForwardToClientient';
 
 interface CarCardProps {
   car: CarListing;
@@ -175,7 +175,7 @@ const CarCard = ({ car, index }: CarCardProps) => {
               <Download className="w-5 h-5" />
             )}
           </button>
-          <ShareToSocial car={car} />
+       ForwardToClientcial car={car} />
         </div>
         {/* Price Badge */}
         <div className="absolute bottom-2 right-2">
