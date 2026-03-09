@@ -261,35 +261,66 @@ function parseSchadeautos(md: string, brand: string, model: string): CarListing[
 
   for (let i = 0; i < lines.length && listings.length < 30; i++) {
     const line = lines[i].trim();
-    const tm = line.match(/^##\s+\[([^\]]+)\]\((https:\/\/www\.schadeautos\.nl\/en\/(?:damaged|car)\/[^)]+)\)/);
+    
+    // Match various link patterns from schadeautos
+    const tm = line.match(/\[([^\]]{5,})\]\((https?:\/\/(?:www\.)?schadeautos\.nl\/[^)]*(?:damaged|car|voertuig|auto)[^)]*)\)/) ||
+               line.match(/##\s+\[([^\]]+)\]\((https?:\/\/(?:www\.)?schadeautos\.nl\/[^)]+)\)/);
     if (!tm) continue;
 
     const title = tm[1], listingUrl = tm[2];
-    const idM = listingUrl.match(/\/o\/(\d+)/);
+    if (/filter|zoek|search|cookie|privacy/i.test(title)) continue;
+    
+    const idM = listingUrl.match(/\/o\/(\d+)/) || listingUrl.match(/\/(\d{4,})/);
     const eid = idM ? `schadeautos-${idM[1]}` : `schadeautos-${Date.now()}-${listings.length}`;
 
     let image: string | null = null, price: number | null = null;
     let year: number | null = null, fuel: string | null = null, mileage: number | null = null;
 
-    for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-      const m = lines[j].trim().match(/\[!\[.*?\]\((https:\/\/www\.schadeautos\.nl\/cache\/picture\/[^)]+)\)/);
-      if (m) { image = m[1].replace(/\/\d+\/(\d+)\//, '/1200/$1/'); break; }
-    }
-
-    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+    // Look both above and below for data
+    for (let j = Math.max(0, i - 8); j < Math.min(i + 15, lines.length); j++) {
       const l = lines[j].trim();
-      if (!price) { const m = l.match(/€\s*([\d.,]+)/); if (m) price = parseEurPrice(m[1]); }
-      if (!year) { const m = l.match(/ERD:\s*(\d{4})/); if (m) year = parseInt(m[1]); }
-      if (!year) { const m = l.match(/\.(?:png|jpg)\)(\d{4})$/); if (m) year = parseInt(m[1]); }
-      if (!fuel) { const m = l.match(/fuel:\s*([^)]+)\)/); if (m) fuel = normFuel(m[1]); }
-      if (mileage === null) { const m = l.match(/mileage:\s*([\d.,]+)/); if (m) mileage = parseKm(m[1]); }
-      if (j > i + 2 && l.startsWith('## [')) break;
+      
+      // Price patterns
+      if (!price) {
+        const m = l.match(/€\s*([\d.,]+)/) || l.match(/([\d.,]+)\s*€/);
+        if (m) price = parseEurPrice(m[1]);
+      }
+      
+      // Year patterns
+      if (!year) {
+        const m = l.match(/ERD:\s*(\d{4})/) || l.match(/bouwjaar[:\s]*(\d{4})/i) || l.match(/year[:\s]*(\d{4})/i);
+        if (m) year = parseInt(m[1]);
+      }
+      if (!year) year = parseYear(l);
+      
+      // Fuel
+      if (!fuel) {
+        const m = l.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG|Petrol|Electric)\b/i) ||
+                  l.match(/fuel[:\s]*([^,|\n]+)/i) || l.match(/brandstof[:\s]*([^,|\n]+)/i);
+        if (m) fuel = normFuel(m[1].trim());
+      }
+      
+      // Mileage
+      if (mileage === null) {
+        const m = l.match(/([\d.,]+)\s*km/i) || l.match(/mileage[:\s]*([\d.,]+)/i) || l.match(/tellerstand[:\s]*([\d.,]+)/i);
+        if (m) mileage = parseKm(m[1]);
+      }
+      
+      // Images - schadeautos cache or CDN
+      if (!image) {
+        const m = l.match(/!\[.*?\]\((https?:\/\/(?:www\.)?schadeautos\.nl\/cache\/picture\/[^)]+)\)/) ||
+                  l.match(/!\[.*?\]\((https?:\/\/[^)]+schadeautos[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/) ||
+                  l.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/);
+        if (m) image = m[1].replace(/\/\d+\/(\d+)\//, '/1200/$1/');
+      }
+      
+      if (j > i + 3 && (l.startsWith('## [') || l.match(/\[([^\]]{5,})\]\(https?:\/\/(?:www\.)?schadeautos/))) break;
     }
 
     if (!price) continue;
 
     listings.push({
-      external_id: eid, title,
+      external_id: eid, title: title.substring(0, 200),
       brand: normBrand(brand), model: model || '',
       year: year || new Date().getFullYear(), price, mileage, fuel,
       transmission: null, location: 'Olandija', country: 'Olandija',
@@ -308,25 +339,52 @@ function parseMarktplaats(md: string, brand: string, model: string): CarListing[
 
   for (let i = 0; i < lines.length && listings.length < 30; i++) {
     const line = lines[i].trim();
-    // Links: [Title](url) or ## [Title](url)
-    const lm = line.match(/\[([^\]]{10,})\]\((https:\/\/www\.marktplaats\.nl\/v\/auto-s\/[^)]+)\)/);
+    
+    // Match various marktplaats link patterns
+    const lm = line.match(/\[([^\]]{8,})\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/v\/auto-s[^)]+)\)/) ||
+               line.match(/\[([^\]]{8,})\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/[^)]*auto[^)]+m\d{7,}[^)]*)\)/);
     if (!lm) continue;
 
     const title = lm[1], url = lm[2];
-    const idM = url.match(/m(\d{7,})/);
+    if (/zoekresultat|filter|sorteer|bewaar|cookie/i.test(title)) continue;
+    
+    const idM = url.match(/m(\d{7,})/) || url.match(/(\d{7,})/);
     if (!idM) continue;
     const eid = `marktplaats-${idM[1]}`;
 
     let price: number | null = null, year: number | null = null;
     let mileage: number | null = null, fuel: string | null = null, image: string | null = null;
 
-    for (let j = Math.max(0, i - 5); j < Math.min(i + 10, lines.length); j++) {
+    // Search wider range for data
+    for (let j = Math.max(0, i - 8); j < Math.min(i + 15, lines.length); j++) {
       const l = lines[j].trim();
-      if (!price) { const m = l.match(/€\s*([\d.,]+)/); if (m) price = parseEurPrice(m[1]); }
+      
+      // Price - multiple patterns
+      if (!price) {
+        const m = l.match(/€\s*([\d.,]+)/) || l.match(/([\d.,]+)\s*€/);
+        if (m) price = parseEurPrice(m[1]);
+      }
+      
+      // Year
       if (!year) year = parseYear(l);
-      if (mileage === null) { const m = l.match(/([\d.,]+)\s*km/); if (m) mileage = parseKm(m[1]); }
-      if (!fuel) { const m = l.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG)\b/i); if (m) fuel = normFuel(m[1]); }
-      if (!image) { const m = l.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/); if (m) image = m[1]; }
+      
+      // Mileage
+      if (mileage === null) {
+        const m = l.match(/([\d.,]+)\s*km/i);
+        if (m) mileage = parseKm(m[1]);
+      }
+      
+      // Fuel
+      if (!fuel) {
+        const m = l.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG|Electrisch)\b/i);
+        if (m) fuel = normFuel(m[1]);
+      }
+      
+      // Images
+      if (!image) {
+        const m = l.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/);
+        if (m) image = m[1];
+      }
     }
 
     if (!price) continue;
