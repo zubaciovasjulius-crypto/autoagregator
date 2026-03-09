@@ -339,25 +339,52 @@ function parseMarktplaats(md: string, brand: string, model: string): CarListing[
 
   for (let i = 0; i < lines.length && listings.length < 30; i++) {
     const line = lines[i].trim();
-    // Links: [Title](url) or ## [Title](url)
-    const lm = line.match(/\[([^\]]{10,})\]\((https:\/\/www\.marktplaats\.nl\/v\/auto-s\/[^)]+)\)/);
+    
+    // Match various marktplaats link patterns
+    const lm = line.match(/\[([^\]]{8,})\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/v\/auto-s[^)]+)\)/) ||
+               line.match(/\[([^\]]{8,})\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/[^)]*auto[^)]+m\d{7,}[^)]*)\)/);
     if (!lm) continue;
 
     const title = lm[1], url = lm[2];
-    const idM = url.match(/m(\d{7,})/);
+    if (/zoekresultat|filter|sorteer|bewaar|cookie/i.test(title)) continue;
+    
+    const idM = url.match(/m(\d{7,})/) || url.match(/(\d{7,})/);
     if (!idM) continue;
     const eid = `marktplaats-${idM[1]}`;
 
     let price: number | null = null, year: number | null = null;
     let mileage: number | null = null, fuel: string | null = null, image: string | null = null;
 
-    for (let j = Math.max(0, i - 5); j < Math.min(i + 10, lines.length); j++) {
+    // Search wider range for data
+    for (let j = Math.max(0, i - 8); j < Math.min(i + 15, lines.length); j++) {
       const l = lines[j].trim();
-      if (!price) { const m = l.match(/€\s*([\d.,]+)/); if (m) price = parseEurPrice(m[1]); }
+      
+      // Price - multiple patterns
+      if (!price) {
+        const m = l.match(/€\s*([\d.,]+)/) || l.match(/([\d.,]+)\s*€/);
+        if (m) price = parseEurPrice(m[1]);
+      }
+      
+      // Year
       if (!year) year = parseYear(l);
-      if (mileage === null) { const m = l.match(/([\d.,]+)\s*km/); if (m) mileage = parseKm(m[1]); }
-      if (!fuel) { const m = l.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG)\b/i); if (m) fuel = normFuel(m[1]); }
-      if (!image) { const m = l.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/); if (m) image = m[1]; }
+      
+      // Mileage
+      if (mileage === null) {
+        const m = l.match(/([\d.,]+)\s*km/i);
+        if (m) mileage = parseKm(m[1]);
+      }
+      
+      // Fuel
+      if (!fuel) {
+        const m = l.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG|Electrisch)\b/i);
+        if (m) fuel = normFuel(m[1]);
+      }
+      
+      // Images
+      if (!image) {
+        const m = l.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/);
+        if (m) image = m[1];
+      }
     }
 
     if (!price) continue;
