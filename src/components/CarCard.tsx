@@ -175,7 +175,7 @@ const CarCard = ({ car, index }: CarCardProps) => {
               <Download className="w-5 h-5" />
             )}
           </button>
-       ForwardToClientcial car={car} />
+       <ForwardToClient car={car} />
         </div>
         {/* Price Badge */}
         <div className="absolute bottom-2 right-2">
