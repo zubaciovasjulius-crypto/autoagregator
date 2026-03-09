@@ -278,6 +278,7 @@ export type Database = {
           images: string[] | null
           listing_id: string | null
           repair_price: number
+          service_price: number
           share_token: string
           status: string
           title: string
@@ -296,6 +297,7 @@ export type Database = {
           images?: string[] | null
           listing_id?: string | null
           repair_price?: number
+          service_price?: number
           share_token?: string
           status?: string
           title: string
@@ -314,6 +316,7 @@ export type Database = {
           images?: string[] | null
           listing_id?: string | null
           repair_price?: number
+          service_price?: number
           share_token?: string
           status?: string
           title?: string
