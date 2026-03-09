@@ -164,21 +164,18 @@ const Index = () => {
             // Add to known
             knownListingsRef.current.add(listingId);
             
-            // If not first check, this is a NEW listing - save to database
-            if (!isFirstCheckRef.current) {
-              const carListing = convertDbToCarListing(listing);
-              const saved = await addFoundListing(carListing);
-              if (saved && listing.image) {
-                // Queue image for saving to storage
-                newListingsToSaveImages.push({
-                  id: saved.id,
-                  imageUrl: listing.image,
-                  externalId: listing.external_id,
-                });
-                newCount++;
-              } else if (saved) {
-                newCount++;
-              }
+            // ALWAYS save to database (including first check)
+            const carListing = convertDbToCarListing(listing);
+            const saved = await addFoundListing(carListing);
+            if (saved && listing.image) {
+              newListingsToSaveImages.push({
+                id: saved.id,
+                imageUrl: listing.image,
+                externalId: listing.external_id,
+              });
+              newCount++;
+            } else if (saved) {
+              newCount++;
             }
           }
         }
@@ -190,40 +187,30 @@ const Index = () => {
       // Save images in background for new listings
       if (newListingsToSaveImages.length > 0) {
         console.log(`Saving ${newListingsToSaveImages.length} images to storage...`);
-        
-        // Process images in background (don't await all)
         for (const item of newListingsToSaveImages) {
           scrapeApi.saveListingImage(item.imageUrl, item.id, item.externalId)
             .then(result => {
-              if (result.success) {
-                console.log(`✓ Image saved: ${result.publicUrl}`);
-              } else {
-                console.warn(`✗ Failed to save image: ${result.error}`);
-              }
+              if (result.success) console.log(`✓ Image saved: ${result.publicUrl}`);
+              else console.warn(`✗ Failed to save image: ${result.error}`);
             })
             .catch(err => console.error('Image save error:', err));
-          
-          // Small delay between image saves
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
       
-      if (newCount > 0) {
-        // Play sound
-        if (soundEnabled) {
-          playNotificationSound();
-        }
+      if (newCount > 0 && !isFirstCheckRef.current) {
+        // Play sound only for subsequent checks (not first load)
+        if (soundEnabled) playNotificationSound();
         
-        // Show toast
         toast({
           title: `🚗 ${newCount} nauji skelbimai!`,
           description: `Pridėti į sąrašą${newListingsToSaveImages.length > 0 ? '. Nuotraukos išsaugomos...' : ''}`,
           duration: 10000,
         });
-        
-        // Refresh found listings from DB
-        fetchFoundListings();
       }
+      
+      // Refresh found listings from DB
+      fetchFoundListings();
       
       isFirstCheckRef.current = false;
       setLastCheck(new Date());
