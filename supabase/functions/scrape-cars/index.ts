@@ -335,67 +335,70 @@ function parseSchadeautos(md: string, brand: string, model: string): CarListing[
 // ===== MARKTPLAATS (NL) =====
 function parseMarktplaats(md: string, brand: string, model: string): CarListing[] {
   const listings: CarListing[] = [];
-  const lines = md.split('\n');
-
-  for (let i = 0; i < lines.length && listings.length < 30; i++) {
-    const line = lines[i].trim();
+  
+  // Marktplaats format: each listing is a single markdown list item:
+  // - [![Alt](image_url)]\\ \n **Title** \\ \n € price \\ \n specs](listing_url)
+  // We need to find blocks that start with "- [" and end with "](https://www.marktplaats.nl/v/..."
+  
+  // Strategy: find listing URLs and work backwards to extract data
+  const listingBlocks = md.split(/^- \[/m);
+  
+  for (const block of listingBlocks) {
+    if (listings.length >= 30) break;
     
-    // Match various marktplaats link patterns
-    const lm = line.match(/\[([^\]]{8,})\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/v\/auto-s[^)]+)\)/) ||
-               line.match(/\[([^\]]{8,})\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/[^)]*auto[^)]+m\d{7,}[^)]*)\)/);
-    if (!lm) continue;
-
-    const title = lm[1], url = lm[2];
-    if (/zoekresultat|filter|sorteer|bewaar|cookie/i.test(title)) continue;
+    // Find the listing URL at the end of the block
+    const urlMatch = block.match(/\]\((https?:\/\/(?:www\.)?marktplaats\.nl\/v\/auto-s\/[^)]+m(\d{7,})[^)]*)\)/);
+    if (!urlMatch) continue;
     
-    const idM = url.match(/m(\d{7,})/) || url.match(/(\d{7,})/);
-    if (!idM) continue;
-    const eid = `marktplaats-${idM[1]}`;
-
-    let price: number | null = null, year: number | null = null;
-    let mileage: number | null = null, fuel: string | null = null, image: string | null = null;
-
-    // Search wider range for data
-    for (let j = Math.max(0, i - 8); j < Math.min(i + 15, lines.length); j++) {
-      const l = lines[j].trim();
-      
-      // Price - multiple patterns
-      if (!price) {
-        const m = l.match(/€\s*([\d.,]+)/) || l.match(/([\d.,]+)\s*€/);
-        if (m) price = parseEurPrice(m[1]);
-      }
-      
-      // Year
-      if (!year) year = parseYear(l);
-      
-      // Mileage
-      if (mileage === null) {
-        const m = l.match(/([\d.,]+)\s*km/i);
-        if (m) mileage = parseKm(m[1]);
-      }
-      
-      // Fuel
-      if (!fuel) {
-        const m = l.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG|Electrisch)\b/i);
-        if (m) fuel = normFuel(m[1]);
-      }
-      
-      // Images
-      if (!image) {
-        const m = l.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/);
-        if (m) image = m[1];
-      }
-    }
-
+    const listingUrl = urlMatch[1];
+    const eid = `marktplaats-${urlMatch[2]}`;
+    
+    // Extract title from **Title**
+    const titleMatch = block.match(/\*\*([^*]{5,})\*\*/);
+    const title = titleMatch ? titleMatch[1].trim() : `${brand} ${model}`;
+    
+    // Extract image from [![...](image_url)
+    let image: string | null = null;
+    const imgMatch = block.match(/!\[.*?\]\((https?:\/\/images\.marktplaats\.com[^)]+)\)/) ||
+                     block.match(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|webp|png)[^)]*)\)/);
+    if (imgMatch) image = imgMatch[1];
+    
+    // Extract price from € XX.XXX,- or € XX.XXX
+    let price: number | null = null;
+    const priceMatch = block.match(/€\s*([\d.,]+)/);
+    if (priceMatch) price = parseEurPrice(priceMatch[1]);
+    
     if (!price) continue;
-
+    
+    // Extract year - look for 4 digit year in specs line like "2015302.216kmDieselAutomaat..."
+    let year: number | null = null;
+    const yearMatch = block.match(/\\\\?\s*(\d{4})([\d.,]*km)?/);
+    if (yearMatch) {
+      const y = parseInt(yearMatch[1]);
+      if (y >= 1990 && y <= new Date().getFullYear() + 1) year = y;
+    }
+    if (!year) year = parseYear(block);
+    
+    // Extract mileage - "302.216km" or "123.456 km"
+    let mileage: number | null = null;
+    const kmMatch = block.match(/([\d.,]+)\s*km/i);
+    if (kmMatch) mileage = parseKm(kmMatch[1]);
+    
+    // Extract fuel
+    let fuel: string | null = null;
+    const fuelMatch = block.match(/\b(Diesel|Benzine|Hybrid|Elektrisch|LPG|Plug-in hybride|Volledig hybride|Half hybride)\b/i);
+    if (fuelMatch) fuel = normFuel(fuelMatch[1]);
+    
+    // Extract location (appears after the block, on separate lines)
+    // We skip this for now as it's outside the block
+    
     listings.push({
       external_id: eid, title: title.substring(0, 200),
       brand: normBrand(brand), model: model || '',
       year: year || new Date().getFullYear(), price, mileage, fuel,
       transmission: null, location: null, country: 'Olandija',
       source: 'Marktplaats', source_url: 'https://marktplaats.nl',
-      listing_url: url, image,
+      listing_url: listingUrl, image,
     });
   }
   console.log(`  Marktplaats: ${listings.length}`);
