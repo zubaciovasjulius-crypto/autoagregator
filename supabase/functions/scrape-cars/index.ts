@@ -756,7 +756,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { brand, model } = await req.json();
+    const { brand, model, forceRefresh } = await req.json();
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const fcKey = Deno.env.get('FIRECRAWL_API_KEY_1') || Deno.env.get('FIRECRAWL_API_KEY');
@@ -770,19 +770,41 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    if (!fcKey) {
-      return new Response(JSON.stringify({ success: false, error: 'API key missing' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const isAll = !model || model === '*';
+
+    // If NOT forceRefresh, return cached data if we have recent results (< 5 min old)
+    if (!forceRefresh) {
+      let q = supabase.from('car_listings').select('*').ilike('brand', `%${brand}%`);
+      if (!isAll) q = q.ilike('model', `%${model}%`);
+      const { data: cached } = await q.order('scraped_at', { ascending: false }).limit(200);
+      
+      if (cached && cached.length > 0) {
+        const newestAt = new Date(cached[0].scraped_at).getTime();
+        const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+        if (newestAt > fiveMinAgo) {
+          console.log(`Cache hit: ${cached.length} listings for ${brand} ${model || '*'}`);
+          return new Response(JSON.stringify({ success: true, data: cached, cached: true, count: cached.length }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
     }
 
-    const isAll = !model || model === '*';
+    if (!fcKey) {
+      // No API key - return whatever we have cached
+      let q = supabase.from('car_listings').select('*').ilike('brand', `%${brand}%`);
+      if (!isAll) q = q.ilike('model', `%${model}%`);
+      const { data: fallback } = await q.order('scraped_at', { ascending: false }).limit(200);
+      return new Response(JSON.stringify({ success: true, data: fallback || [], cached: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const allListings: CarListing[] = [];
     const counts: Record<string, number> = {};
 
     console.log(`\n========== SCRAPING: ${brand} ${isAll ? '(all models)' : model} ==========`);
 
-    // Sort by priority and scrape
-    const sortedSources = [...SOURCES].sort((a, b) => a.priority - b.priority);
+    // Sort by priority, only scrape top 4 sources to stay within timeout
+    const sortedSources = [...SOURCES].sort((a, b) => a.priority - b.priority).slice(0, 4);
 
     for (const src of sortedSources) {
       try {
@@ -800,8 +822,8 @@ Deno.serve(async (req) => {
           counts[src.name] = 0;
         }
 
-        // Rate limit: 1.5s between requests
-        await new Promise(r => setTimeout(r, 1500));
+        // Rate limit: 1s between requests
+        await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
         console.error(`  ✗ ${src.name} error:`, e);
         counts[src.name] = 0;
@@ -813,7 +835,6 @@ Deno.serve(async (req) => {
 
     // Upsert to database
     if (allListings.length > 0) {
-      // Batch upsert in chunks of 50
       for (let i = 0; i < allListings.length; i += 50) {
         const chunk = allListings.slice(i, i + 50);
         const { error } = await supabase.from('car_listings').upsert(chunk, { onConflict: 'external_id,source' });
