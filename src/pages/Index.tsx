@@ -524,12 +524,12 @@ const Index = () => {
               <div key={car.id} className="relative group">
                 <CarCard car={car} index={index} />
                 <button
-                  onClick={() => handleDeleteListing(car.id)}
-                  className="absolute top-2 right-2 p-2 bg-destructive/90 hover:bg-destructive rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                  title="Ištrinti"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                   onClick={() => handleDeleteListing(car.id)}
+                   className="absolute bottom-14 right-2 p-1.5 bg-destructive/80 hover:bg-destructive rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                   title="Ištrinti"
+                 >
+                   <X className="w-3.5 h-3.5" />
+                 </button>
               </div>
             ))}
           </div>
