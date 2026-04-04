@@ -130,7 +130,7 @@ const Index = () => {
     source: db.source,
     sourceUrl: db.source_url,
     image: db.image || null,
-    listingUrl: db.listing_url || db.source_url,
+    listingUrl: db.listing_url || '',
   }), []);
 
   // Check all saved searches for new listings

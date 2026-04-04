@@ -827,47 +827,64 @@ Deno.serve(async (req) => {
 
     console.log(`\n========== SCRAPING: ${brand} ${isAll ? '(all models)' : model} ==========`);
 
-    // Sort by priority, only scrape top 4 sources to stay within timeout
-    const sortedSources = [...SOURCES].sort((a, b) => a.priority - b.priority).slice(0, 4);
+    const sortedSources = [...SOURCES].sort((a, b) => a.priority - b.priority);
+    const batchSize = 3;
 
-    for (const src of sortedSources) {
-      try {
-        const url = src.url(brand, model || '', isAll);
-        console.log(`\n--- ${src.name} (priority ${src.priority}) ---`);
-        
-        const md = await scrape(fcKey, url);
-        
-        if (md.length > 200) {
-          const parsed = src.parse(md, brand, isAll ? '' : (model || '')).filter(l => l.price >= 500);
-          allListings.push(...parsed);
-          counts[src.name] = parsed.length;
-        } else {
-          console.log(`  ⚠ Too short (${md.length} chars), skipping parse`);
-          counts[src.name] = 0;
-        }
+    for (let batchStart = 0; batchStart < sortedSources.length; batchStart += batchSize) {
+      const batch = sortedSources.slice(batchStart, batchStart + batchSize);
 
-        // Rate limit: 1s between requests
-        await new Promise(r => setTimeout(r, 1000));
-      } catch (e) {
-        console.error(`  ✗ ${src.name} error:`, e);
-        counts[src.name] = 0;
+      const batchResults = await Promise.all(
+        batch.map(async (src) => {
+          try {
+            const url = src.url(brand, model || '', isAll);
+            console.log(`\n--- ${src.name} (priority ${src.priority}) ---`);
+
+            const md = await scrape(fcKey, url);
+
+            if (md.length <= 200) {
+              console.log(`  ⚠ Too short (${md.length} chars), skipping parse`);
+              return { name: src.name, listings: [] as CarListing[] };
+            }
+
+            const parsed = src
+              .parse(md, brand, isAll ? '' : (model || ''))
+              .filter((l) => l.price >= 500);
+
+            return { name: src.name, listings: parsed };
+          } catch (e) {
+            console.error(`  ✗ ${src.name} error:`, e);
+            return { name: src.name, listings: [] as CarListing[] };
+          }
+        })
+      );
+
+      for (const result of batchResults) {
+        allListings.push(...result.listings);
+        counts[result.name] = result.listings.length;
+      }
+
+      if (batchStart + batchSize < sortedSources.length) {
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
 
     console.log(`\n========== TOTAL: ${allListings.length} listings ==========`);
     console.log('Per source:', JSON.stringify(counts));
 
-    // Upsert to database
     if (allListings.length > 0) {
+      const scrapedAt = new Date().toISOString();
+
       for (let i = 0; i < allListings.length; i += 50) {
-        const chunk = allListings.slice(i, i + 50);
+        const chunk = allListings.slice(i, i + 50).map((listing) => ({
+          ...listing,
+          scraped_at: scrapedAt,
+        }));
         const { error } = await supabase.from('car_listings').upsert(chunk, { onConflict: 'external_id,source' });
         if (error) console.error('DB upsert error:', error.message);
       }
       console.log(`✓ Saved ${allListings.length} listings to DB`);
     }
 
-    // Return fresh data from DB
     let q = supabase.from('car_listings').select('*').ilike('brand', `%${brand}%`);
     if (!isAll) q = q.ilike('model', `%${model}%`);
     const { data: fresh } = await q.order('scraped_at', { ascending: false }).limit(200);
@@ -875,8 +892,8 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       data: fresh || [],
-      cached: false,
-      count: allListings.length,
+      cached: allListings.length === 0,
+      count: allListings.length > 0 ? allListings.length : (fresh?.length || 0),
       sources: counts,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
