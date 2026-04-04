@@ -80,7 +80,7 @@ export const useFoundListings = () => {
           country: listing.country,
           source: listing.source,
           source_url: listing.sourceUrl,
-          listing_url: listing.listingUrl,
+          listing_url: listing.listingUrl || null,
           image: listing.image,
         }, {
           onConflict: 'user_id,external_id',
