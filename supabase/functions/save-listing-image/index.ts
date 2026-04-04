@@ -27,7 +27,6 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch the image
     const imageResponse = await fetch(imageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -37,10 +36,10 @@ Deno.serve(async (req) => {
     });
 
     if (!imageResponse.ok) {
-      console.error(`Failed to fetch image: ${imageResponse.status}`);
+      console.warn(`Skipping image save, source returned ${imageResponse.status} for ${imageUrl}`);
       return new Response(
-        JSON.stringify({ success: false, error: `Failed to fetch image: ${imageResponse.status}` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, skipped: true, error: `Image unavailable: ${imageResponse.status}` }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
