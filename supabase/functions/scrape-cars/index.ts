@@ -125,9 +125,20 @@ function parseAutoScout24(md: string, brand: string, model: string): CarListing[
 
   for (let i = 0; i < lines.length && listings.length < 30; i++) {
     const line = lines[i].trim();
-    if (!line.startsWith('**') || !line.endsWith('**') || line.length < 15) continue;
-    const title = line.replace(/\*\*/g, '').trim();
+    
+    // Try to match linked titles first: [**Title**](url) or **[Title](url)**
+    let title = '', listingUrl: string | null = null;
+    const linkedM = line.match(/\[?\*\*\[?([^\]]*?)\]?\((https:\/\/www\.autoscout24\.[a-z]+\/[^)]+)\)/);
+    if (linkedM) {
+      title = linkedM[1].replace(/\*\*/g, '').trim();
+      listingUrl = linkedM[2];
+    } else {
+      // Plain bold title
+      if (!line.startsWith('**') || !line.endsWith('**') || line.length < 15) continue;
+      title = line.replace(/\*\*/g, '').trim();
+    }
     if (/show more|filter|sort|sponsored|save search/i.test(title)) continue;
+    if (title.length < 5) continue;
 
     let image: string | null = null, price: number | null = null;
     let year: number | null = null, mileage: number | null = null;
@@ -135,6 +146,13 @@ function parseAutoScout24(md: string, brand: string, model: string): CarListing[
 
     for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
       const l = lines[j].trim();
+
+      // Try to find listing URL in nearby lines
+      if (!listingUrl) {
+        const urlM = l.match(/\(?(https:\/\/www\.autoscout24\.[a-z]+\/offers\/[^\s)]+)\)?/) ||
+                     l.match(/\(?(https:\/\/www\.autoscout24\.[a-z]+\/[a-z\-]+\/[a-z\-]+\/[^\s)]+)\)?/);
+        if (urlM) listingUrl = urlM[1];
+      }
 
       if (!image) {
         const m = l.match(/!\[.*?\]\((https:\/\/prod\.pictures\.autoscout24\.net[^\s)]+)\)/);
@@ -145,7 +163,6 @@ function parseAutoScout24(md: string, brand: string, model: string): CarListing[
         const m = l.match(/^€\s*([\d.,]+)\d?$/);
         if (m) {
           let ps = m[0].replace(/^€\s*/, '');
-          // Strip trailing footnote digit
           if (ps.length > 4 && /[12]$/.test(ps)) ps = ps.slice(0, -1);
           price = parseEurPrice(ps);
         }
@@ -177,6 +194,13 @@ function parseAutoScout24(md: string, brand: string, model: string): CarListing[
 
     if (!price || price < 500) continue;
 
+    // Generate search URL as fallback if no direct listing URL
+    if (!listingUrl) {
+      const searchBrand = brand.toLowerCase().replace(/\s+/g, '-');
+      const searchModel = (model || '').toLowerCase().replace(/\s+/g, '-');
+      listingUrl = `https://www.autoscout24.com/lst/${searchBrand}/${searchModel}?sort=age&desc=1`;
+    }
+
     const hash = `${title.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}-${price}`;
     listings.push({
       external_id: `as24-${hash}`,
@@ -185,7 +209,7 @@ function parseAutoScout24(md: string, brand: string, model: string): CarListing[
       year: year || new Date().getFullYear(), price, mileage, fuel,
       transmission: null, location, country,
       source: 'AutoScout24', source_url: 'https://autoscout24.com',
-      listing_url: null, image,
+      listing_url: listingUrl, image,
     });
   }
   console.log(`  AutoScout24: ${listings.length}`);
