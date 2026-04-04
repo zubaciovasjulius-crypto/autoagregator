@@ -213,15 +213,22 @@ const CarCard = ({ car, index }: CarCardProps) => {
         </div>
 
         {/* CTA Button */}
-        <a
-          href={car.listingUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium transition-colors"
-        >
-          <ExternalLink className="w-4 h-4" />
-          Žiūrėti skelbimą
-        </a>
+        {car.listingUrl && car.listingUrl !== car.sourceUrl ? (
+          <a
+            href={car.listingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Žiūrėti skelbimą
+          </a>
+        ) : (
+          <div className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-muted text-muted-foreground text-sm font-medium cursor-not-allowed">
+            <ExternalLink className="w-4 h-4" />
+            Nėra tiesioginio lingo
+          </div>
+        )}
       </div>
     </article>
   );
